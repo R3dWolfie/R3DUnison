@@ -24,6 +24,9 @@ namespace R3DUnison.Core
 
         public static void Post(Action action) => Queue.Enqueue(action);
 
+        /// <summary>Per-frame tick on the main thread; transports poll their sockets here.</summary>
+        public static event Action OnFrame;
+
         private void Update()
         {
             while (Queue.TryDequeue(out var action))
@@ -36,6 +39,14 @@ namespace R3DUnison.Core
                 {
                     Main.LogError($"Dispatched action threw: {e}");
                 }
+            }
+            try
+            {
+                OnFrame?.Invoke();
+            }
+            catch (Exception e)
+            {
+                Main.LogError($"OnFrame handler threw: {e}");
             }
         }
     }
