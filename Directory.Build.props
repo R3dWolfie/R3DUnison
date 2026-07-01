@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- Override with -p:AdofaiDir=... or an env var on other machines/OSes.
+         The Managed data dir name differs per platform (Linux: ADanceOfFireAndIce_Data,
+         Windows: "A Dance of Fire and Ice_Data") — override AdofaiManaged too if needed. -->
+    <AdofaiDir Condition="'$(AdofaiDir)' == ''">/mnt/storage2/SteamLibrary/steamapps/common/A Dance of Fire and Ice</AdofaiDir>
+    <AdofaiManaged Condition="'$(AdofaiManaged)' == ''">$(AdofaiDir)/ADanceOfFireAndIce_Data/Managed</AdofaiManaged>
+  </PropertyGroup>
+</Project>
