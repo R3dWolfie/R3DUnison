@@ -22,7 +22,13 @@ DOTNET="${DOTNET:-$HOME/.dotnet/dotnet}"
 rm -rf dist
 mkdir -p dist/R3DUnison
 cp src/R3DUnison/bin/Release/R3DUnison.dll src/R3DUnison/Info.json dist/R3DUnison/
-(cd dist && zip -r R3DUnison.zip R3DUnison)
+if command -v zip >/dev/null; then
+    (cd dist && zip -r R3DUnison.zip R3DUnison)
+elif command -v bsdtar >/dev/null; then
+    (cd dist && bsdtar -a -cf R3DUnison.zip R3DUnison)
+else
+    (cd dist && python3 -m zipfile -c R3DUnison.zip R3DUnison/)
+fi
 
 gh release create "v$VER" dist/R3DUnison.zip \
     --title "R3D Unison v$VER" \
