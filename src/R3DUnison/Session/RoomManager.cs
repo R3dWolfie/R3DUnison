@@ -15,6 +15,14 @@ namespace R3DUnison.Session
         public bool IsHost;
         /// <summary>True once a Hello made the round trip — actual P2P connectivity, not just lobby presence.</summary>
         public bool P2PConnected;
+
+        // Live in-run stats (fed by LiveStats messages / local sampling)
+        public float Progress;
+        public float Accuracy;
+        public bool Dead;
+        public float StatsAt = -1000f;
+
+        public bool HasFreshStats => UnityEngine.Time.realtimeSinceStartup - StatsAt < 3f;
     }
 
     /// <summary>
@@ -63,6 +71,7 @@ namespace R3DUnison.Session
                 // Double-pumping where the game does too is harmless (queue drains once).
                 SteamIntegration.instance?.CheckCallbacks();
                 SyncedStart.Tick();
+                TickLiveStats();
                 return;
             }
             if (!SteamIntegration.initialized) return;
@@ -142,6 +151,10 @@ namespace R3DUnison.Session
                 Lobby.SetLevelInfo(_announcedLevel.Key, _announcedLevel.Display);
                 _announcedLevel = null;
             }
+            if (Lobby.IsOwner)
+            {
+                Lobby.SetDeathSync(Main.Settings.SyncDeaths);
+            }
             Status = $"In room '{Lobby.RoomName}'";
             RefreshMembers();
         }
@@ -161,6 +174,82 @@ namespace R3DUnison.Session
         internal void SendAll(MessageType type, object payload)
         {
             _transport?.Broadcast(Codec.Encode(type, payload), SendMode.Reliable);
+        }
+
+        private float _statsSentAt;
+        private bool _localDead;
+        private float _forceRestartAt = -1000f;
+
+        // Sample our run 4×/s: stream stats to the room, detect deaths for the death-sync rule.
+        private void TickLiveStats()
+        {
+            if (!InRoom || Members.Count < 2 || _transport == null) return;
+            var level = Game.LevelTracker.Current;
+            if (level == null)
+            {
+                _localDead = false;
+                return;
+            }
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            if (now - _statsSentAt < 0.25f) return;
+            _statsSentAt = now;
+
+            float progress = 0f, accuracy = 1f;
+            bool dead = false;
+            try
+            {
+                var controller = scrController.instance;
+                if (controller == null) return;
+                progress = controller.percentComplete;
+                accuracy = controller.mistakesManager?.percentAcc ?? 1f;
+                dead = controller.currentState == States.Fail || controller.currentState == States.Fail2;
+            }
+            catch
+            {
+                return; // mid-transition
+            }
+
+            var self = Members.FirstOrDefault(m => m.IsSelf);
+            if (self != null)
+            {
+                self.Progress = progress;
+                self.Accuracy = accuracy;
+                self.Dead = dead;
+                self.StatsAt = now;
+            }
+            _transport.Broadcast(
+                Codec.Encode(MessageType.LiveStats, new LiveStatsMsg { Key = level.Key, Progress = progress, Accuracy = accuracy, Dead = dead }),
+                SendMode.Unreliable);
+
+            // Death-sync rule: our death in the room's synced level restarts everyone.
+            if (dead && !_localDead && Lobby.DeathSyncEnabled && level.Key == SyncedStart.LastSyncedKey && now - _forceRestartAt > 3f)
+            {
+                _forceRestartAt = now;
+                SendAll(MessageType.ForceRestart, new ForceRestartMsg { Key = level.Key });
+                Main.Log("[deathsync] we died — restarting the room");
+                DoForceRestart(level.Key);
+            }
+            _localDead = dead;
+        }
+
+        private void DoForceRestart(string key)
+        {
+            var level = Game.LevelTracker.Current;
+            if (level == null || level.Key != key) return;
+            foreach (var member in Members)
+            {
+                member.Dead = false;
+                member.Progress = 0f;
+            }
+            try
+            {
+                SyncedStart.ForceResync();
+                ADOBase.RestartScene();
+            }
+            catch (Exception e)
+            {
+                Main.LogError($"Force restart failed: {e.Message}");
+            }
         }
 
         private void OnRoomsListed(List<RoomInfo> rooms)
@@ -232,6 +321,31 @@ namespace R3DUnison.Session
                 case MessageType.SyncAbort:
                     SyncedStart.OnAbort(from);
                     break;
+                case MessageType.LiveStats:
+                {
+                    var stats = Codec.Payload<LiveStatsMsg>(envelope);
+                    var sender = Members.FirstOrDefault(m => m.Id == from);
+                    if (sender != null && stats != null)
+                    {
+                        sender.Progress = stats.Progress;
+                        sender.Accuracy = stats.Accuracy;
+                        sender.Dead = stats.Dead;
+                        sender.StatsAt = UnityEngine.Time.realtimeSinceStartup;
+                    }
+                    break;
+                }
+                case MessageType.ForceRestart:
+                {
+                    var restart = Codec.Payload<ForceRestartMsg>(envelope);
+                    float now = UnityEngine.Time.realtimeSinceStartup;
+                    if (restart != null && now - _forceRestartAt > 3f)
+                    {
+                        _forceRestartAt = now;
+                        Main.Log("[deathsync] a player died — restarting");
+                        DoForceRestart(restart.Key);
+                    }
+                    break;
+                }
             }
         }
 

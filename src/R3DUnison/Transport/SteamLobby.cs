@@ -29,6 +29,7 @@ namespace R3DUnison.Transport
         private const string KeyLevel = "level";
         private const string KeyLevelId = "lvlkey";
         private const string KeyAuto = "auto";
+        private const string KeyDeathSync = "dsync";
 
         private readonly CallResult<LobbyCreated_t> _created;
         private readonly CallResult<LobbyEnter_t> _joined;
@@ -92,6 +93,14 @@ namespace R3DUnison.Transport
         }
 
         public string CurrentLevelDisplay => InRoom ? SteamMatchmaking.GetLobbyData(CurrentLobby, KeyLevel) : "";
+
+        /// <summary>Room rule (owner-set): anyone dying restarts the level for everyone.</summary>
+        public bool DeathSyncEnabled => InRoom && SteamMatchmaking.GetLobbyData(CurrentLobby, KeyDeathSync) == "1";
+
+        public void SetDeathSync(bool enabled)
+        {
+            if (InRoom && IsOwner) SteamMatchmaking.SetLobbyData(CurrentLobby, KeyDeathSync, enabled ? "1" : "0");
+        }
 
         public void RefreshRooms()
         {

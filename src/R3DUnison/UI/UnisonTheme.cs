@@ -27,7 +27,7 @@ namespace R3DUnison.UI
 
         public static GUIStyle Window, Title, TitleTag, Header, Label, Name, Dim, Status,
             LevelText, Card, Row, Button, ButtonPrimary, TextField, Overlay, OverlayHead,
-            DotOn, DotOff, ChipHost, ChipYou;
+            DotOn, DotOff, DotDead, DeadText, ChipHost, ChipYou;
 
         private static GUIStyle _accentBar, _toggleOn, _toggleOff;
         private static bool _ready;
@@ -172,6 +172,8 @@ namespace R3DUnison.UI
 
             DotOn = new GUIStyle { fontSize = 15, normal = { textColor = Green }, padding = new RectOffset(0, 6, 2, 0) };
             DotOff = new GUIStyle(DotOn) { normal = { textColor = Ink500 } };
+            DotDead = new GUIStyle(DotOn) { normal = { textColor = Red500 } };
+            DeadText = new GUIStyle { fontSize = 14, normal = { textColor = Red500 } };
 
             ChipHost = new GUIStyle { fontSize = 11, normal = { textColor = Red400 }, padding = new RectOffset(8, 0, 6, 0) };
             ChipYou = new GUIStyle(ChipHost) { normal = { textColor = Ink500 } };

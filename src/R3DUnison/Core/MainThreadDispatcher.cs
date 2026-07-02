@@ -24,6 +24,13 @@ namespace R3DUnison.Core
 
         public static void Post(Action action) => Queue.Enqueue(action);
 
+        /// <summary>Run a Unity coroutine on the dispatcher's GameObject (e.g. UnityWebRequest flows).</summary>
+        public static void Run(System.Collections.IEnumerator routine)
+        {
+            Ensure();
+            _instance.StartCoroutine(routine);
+        }
+
         /// <summary>Per-frame tick on the main thread; transports poll their sockets here.</summary>
         public static event Action OnFrame;
 

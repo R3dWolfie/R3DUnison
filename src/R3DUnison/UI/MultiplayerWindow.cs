@@ -46,6 +46,8 @@ namespace R3DUnison.UI
             UnisonTheme.AccentBar();
             GUILayout.Space(14);
 
+            DrawUpdateCard();
+
             var rm = RoomManager.Instance;
             if (rm == null || !rm.SteamReady)
             {
@@ -71,6 +73,32 @@ namespace R3DUnison.UI
                 GUILayout.Label(rm.Status, UnisonTheme.Status);
             }
             GUI.DragWindow();
+        }
+
+        private void DrawUpdateCard()
+        {
+            if (Core.SelfUpdater.AvailableVersion == null && Core.SelfUpdater.State == null) return;
+            GUILayout.BeginVertical(UnisonTheme.Card);
+            if (Core.SelfUpdater.Applied)
+            {
+                GUILayout.Label(Core.SelfUpdater.State, UnisonTheme.LevelText);
+            }
+            else if (Core.SelfUpdater.AvailableVersion != null)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label($"Update v{Core.SelfUpdater.AvailableVersion} available", UnisonTheme.Name);
+                GUILayout.FlexibleSpace();
+                GUI.enabled = !Core.SelfUpdater.Busy;
+                if (GUILayout.Button(Core.SelfUpdater.Busy ? "…" : "UPDATE", UnisonTheme.ButtonPrimary, GUILayout.Width(110)))
+                {
+                    Core.SelfUpdater.Apply();
+                }
+                GUI.enabled = true;
+                GUILayout.EndHorizontal();
+                if (Core.SelfUpdater.State != null) GUILayout.Label(Core.SelfUpdater.State, UnisonTheme.Status);
+            }
+            GUILayout.EndVertical();
+            GUILayout.Space(10);
         }
 
         private void DrawBrowser(RoomManager rm)
@@ -181,6 +209,20 @@ namespace R3DUnison.UI
             {
                 Main.Settings.SyncedStarts = sync;
                 Main.Settings.Save(Main.Mod);
+            }
+            if (rm.Lobby.IsOwner)
+            {
+                bool deaths = UnisonTheme.Toggle(rm.Lobby.DeathSyncEnabled, "Sync deaths — anyone dies, everyone restarts together");
+                if (deaths != rm.Lobby.DeathSyncEnabled)
+                {
+                    rm.Lobby.SetDeathSync(deaths);
+                    Main.Settings.SyncDeaths = deaths;
+                    Main.Settings.Save(Main.Mod);
+                }
+            }
+            else if (rm.Lobby.DeathSyncEnabled)
+            {
+                GUILayout.Label("Room rule: deaths restart everyone", UnisonTheme.Dim);
             }
 
             GUILayout.Space(14);

@@ -33,6 +33,7 @@ namespace R3DUnison
                 _harmony = new Harmony(modEntry.Info.Id);
                 _harmony.PatchAll(typeof(Main).Assembly);
                 Core.MainThreadDispatcher.Ensure();
+                Core.SelfUpdater.OnStartup();
                 Game.LevelTracker.Start();
                 Session.RoomManager.Init();
                 _windowGo = new UnityEngine.GameObject("R3DUnison.MultiplayerWindow");

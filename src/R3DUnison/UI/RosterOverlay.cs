@@ -36,9 +36,18 @@ namespace R3DUnison.UI
             {
                 GUILayout.BeginHorizontal();
                 bool connected = member.IsSelf || member.P2PConnected;
-                GUILayout.Label("●", connected ? UnisonTheme.DotOn : UnisonTheme.DotOff);
+                var dot = member.Dead ? UnisonTheme.DotDead : connected ? UnisonTheme.DotOn : UnisonTheme.DotOff;
+                GUILayout.Label("●", dot);
                 GUILayout.Label(member.Name, UnisonTheme.Label);
                 GUILayout.FlexibleSpace();
+                if (member.Dead)
+                {
+                    GUILayout.Label($"✕ {member.Progress:P0}", UnisonTheme.DeadText);
+                }
+                else if (member.HasFreshStats)
+                {
+                    GUILayout.Label($"{member.Progress:P0} · {member.Accuracy:P1}", UnisonTheme.LevelText);
+                }
                 GUILayout.EndHorizontal();
             }
             GUILayout.EndArea();

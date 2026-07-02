@@ -23,6 +23,23 @@ namespace R3DUnison.Protocol
         Results,
         StartLevel,
         SyncAbort,
+        LiveStats,
+        ForceRestart,
+    }
+
+    /// <summary>Periodic (unreliable) in-run snapshot for the roster overlay.</summary>
+    public class LiveStatsMsg
+    {
+        [JsonProperty("k")] public string Key;
+        [JsonProperty("p")] public float Progress;
+        [JsonProperty("a")] public float Accuracy;
+        [JsonProperty("d")] public bool Dead;
+    }
+
+    /// <summary>Death-sync room rule: someone died, everyone restarts together.</summary>
+    public class ForceRestartMsg
+    {
+        [JsonProperty("k")] public string Key;
     }
 
     /// <summary>Initiator → all: load this level and hold at the start gate.</summary>

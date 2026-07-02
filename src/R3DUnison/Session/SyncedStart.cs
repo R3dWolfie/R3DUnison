@@ -37,6 +37,12 @@ namespace R3DUnison.Session
         public static bool Active => _phase != Phase.Idle;
         public static string StatusLine { get; private set; }
 
+        /// <summary>Key of the last level the room started together (null once forced to re-sync).</summary>
+        public static string LastSyncedKey => _lastSyncedKey;
+
+        /// <summary>Make the next StartMusic of this level re-run the full sync dance (death-sync restarts).</summary>
+        public static void ForceResync() => _lastSyncedKey = null;
+
         /// <summary>Harmony prefix decision point. Returns true to let StartMusic run.</summary>
         public static bool OnStartMusic(scrConductor conductor, Action onComplete, Action onSongScheduled)
         {
