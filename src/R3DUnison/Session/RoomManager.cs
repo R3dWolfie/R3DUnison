@@ -636,7 +636,12 @@ namespace R3DUnison.Session
                 {
                     var result = Codec.Payload<RunResultMsg>(envelope);
                     var who = Members.FirstOrDefault(m => m.Id == from);
-                    if (result != null) Scoreboard.NoteWon(from, who?.Name ?? from.ToString(), result);
+                    // Only honor a "finished" claim if their live progress actually reached the
+                    // end — stops a peer from winning a round without playing it.
+                    if (result != null && who != null && who.Progress >= 0.85f)
+                    {
+                        Scoreboard.NoteWon(from, who.Name ?? from.ToString(), result);
+                    }
                     break;
                 }
                 case MessageType.Chat:
