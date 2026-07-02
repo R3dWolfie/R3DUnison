@@ -16,6 +16,54 @@ namespace R3DUnison.UI
         public static bool HoldingFailScreen { get; private set; }
         public static string HintLine { get; private set; }
 
+        private AudioSource _audio;
+
+        private void Awake()
+        {
+            _audio = gameObject.AddComponent<AudioSource>();
+            _audio.playOnAwake = false;
+            _audio.loop = false;
+        }
+
+        // Best-effort synced song while spectating: play the level's own clip from our
+        // AudioSource, seeked to the target's streamed position, re-seek on drift.
+        private void UpdateSpectateAudio(Session.MemberState target)
+        {
+            try
+            {
+                var conductor = ADOBase.conductor;
+                var clip = conductor != null && conductor.song != null ? conductor.song.clip : null;
+                if (clip == null || (conductor.song.isPlaying && !SyncedStart.Spectating))
+                {
+                    if (_audio.isPlaying) _audio.Stop();
+                    return;
+                }
+                float pos = Mathf.Clamp((float)(target.SongPos + (Time.realtimeSinceStartup - target.StatsAt)), 0f, clip.length - 0.15f);
+                if (pos <= 0.05f) return; // they haven't started yet
+                if (_audio.clip != clip || !_audio.isPlaying)
+                {
+                    _audio.clip = clip;
+                    _audio.pitch = conductor.song.pitch;
+                    _audio.volume = conductor.song.volume;
+                    _audio.time = pos;
+                    _audio.Play();
+                }
+                else if (Mathf.Abs(_audio.time - pos) > 0.4f)
+                {
+                    _audio.time = pos;
+                }
+            }
+            catch
+            {
+                // clip not ready — silence this frame
+            }
+        }
+
+        private void StopSpectateAudio()
+        {
+            if (_audio != null && _audio.isPlaying) _audio.Stop();
+        }
+
         private void Update()
         {
             if (HoldingFailScreen && Input.GetKeyDown(KeyCode.R))
@@ -38,16 +86,28 @@ namespace R3DUnison.UI
             HoldingFailScreen = false;
             HintLine = null;
             var rm = RoomManager.Instance;
-            if (rm == null || !rm.InRoom || rm.Members.Count < 2) return;
+            if (rm == null || !rm.InRoom || rm.Members.Count < 2)
+            {
+                StopSpectateAudio();
+                return;
+            }
             var mine = Game.LevelTracker.Current;
-            if (mine == null) return;
+            if (mine == null)
+            {
+                StopSpectateAudio();
+                return;
+            }
             try
             {
                 var controller = scrController.instance;
                 if (controller == null) return;
                 bool dead = controller.currentState == States.Fail || controller.currentState == States.Fail2;
                 bool gatedSpectator = SyncedStart.Spectating;
-                if (!dead && !gatedSpectator) return;
+                if (!dead && !gatedSpectator)
+                {
+                    StopSpectateAudio();
+                    return;
+                }
 
                 var target = rm.Members
                     .Where(m => !m.IsSelf && !m.Dead && m.HasFreshStats && m.StatsKey == mine.Key)
@@ -55,9 +115,11 @@ namespace R3DUnison.UI
                     .FirstOrDefault();
                 if (target == null)
                 {
+                    StopSpectateAudio();
                     if (gatedSpectator) HintLine = "SPECTATING · waiting for players…";
                     return;
                 }
+                UpdateSpectateAudio(target);
                 if (dead)
                 {
                     HoldingFailScreen = true;

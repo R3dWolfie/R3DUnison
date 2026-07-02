@@ -119,17 +119,23 @@ namespace R3DUnison.UI
 
                 Color color1 = member.HasColors ? member.Color1 : fallback;
                 Color color2 = member.HasColors ? member.Color2 : Color.Lerp(fallback, Color.white, 0.45f);
-                // Which planet sits on the tile alternates per floor (midspins skew this — cosmetic)
-                Color onTile = seq % 2 == 0 ? color1 : color2;
-                Color orbiting = seq % 2 == 0 ? color2 : color1;
-
-                // Planet size from projected orbit radius so ghosts scale with camera zoom
-                float orbitPx = new Vector2(bx - ax, by - ay).magnitude;
-                int fontSize = Mathf.Clamp(Mathf.RoundToInt(orbitPx * 0.8f), 14, Mathf.RoundToInt(96f * scale));
-                _planet.fontSize = fontSize;
-
-                DrawPlanet(ax, ay, onTile);
-                DrawPlanet(bx, by, orbiting);
+                // Real cloned planets render these members — we only add the name label
+                bool realPlanets = Game.GhostPlanets.RealPlanets.Contains(member.Id);
+                int fontSize;
+                if (!realPlanets)
+                {
+                    Color onTile = seq % 2 == 0 ? color1 : color2;
+                    Color orbiting = seq % 2 == 0 ? color2 : color1;
+                    float orbitPx = new Vector2(bx - ax, by - ay).magnitude;
+                    fontSize = Mathf.Clamp(Mathf.RoundToInt(orbitPx * 0.8f), 14, Mathf.RoundToInt(96f * scale));
+                    _planet.fontSize = fontSize;
+                    DrawPlanet(ax, ay, onTile);
+                    DrawPlanet(bx, by, orbiting);
+                }
+                else
+                {
+                    fontSize = Mathf.RoundToInt(30f * scale);
+                }
 
                 float nameW = 220f * scale;
                 float nameY = ay - fontSize * 0.75f - 22f * scale;

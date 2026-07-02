@@ -43,6 +43,7 @@ namespace R3DUnison
                 _windowGo.AddComponent<UI.GhostOverlay>();
                 _windowGo.AddComponent<UI.TransferPrompt>();
                 _windowGo.AddComponent<UI.SpectatorCam>();
+                _windowGo.AddComponent<Game.GhostPlanets>();
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 Log("Enabled.");
             }
