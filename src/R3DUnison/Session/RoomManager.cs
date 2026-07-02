@@ -81,6 +81,7 @@ namespace R3DUnison.Session
                 TickLiveStats();
                 Scoreboard.Tick();
                 TickRoomSpeed();
+                TickSpeedRestart();
                 return;
             }
             if (!SteamIntegration.initialized) return;
@@ -304,6 +305,31 @@ namespace R3DUnison.Session
         }
 
         private bool _speedAsserted;
+        private float _speedRestartAt = -1f;
+
+        /// <summary>Host changed room speed: if a synced level is live, resync everyone at the new speed (debounced).</summary>
+        internal void NotifySpeedChanged()
+        {
+            if (!InRoom || !Lobby.IsOwner) return;
+            var level = Game.LevelTracker.Current;
+            if (SyncedStart.LastSyncedKey != null && level != null && level.Key == SyncedStart.LastSyncedKey)
+            {
+                _speedRestartAt = UnityEngine.Time.realtimeSinceStartup + 1.5f;
+            }
+        }
+
+        private void TickSpeedRestart()
+        {
+            if (_speedRestartAt < 0f || UnityEngine.Time.realtimeSinceStartup < _speedRestartAt) return;
+            _speedRestartAt = -1f;
+            var level = Game.LevelTracker.Current;
+            if (!InRoom || level == null) return;
+            SendChat($"speed ×{Lobby.SpeedMultiplier:0.0#}");
+            _forceRestartAt = UnityEngine.Time.realtimeSinceStartup;
+            SendAll(MessageType.ForceRestart, new ForceRestartMsg { Key = level.Key });
+            Main.Log("[room] speed changed mid-level — resyncing everyone");
+            DoForceRestart(level.Key);
+        }
 
         // Custom levels multiply their pitch AND bake their timing from GCS.currentSpeedTrial
         // at load (the Speed Trial mechanism) — keep it asserted while a room speed is set so

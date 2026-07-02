@@ -266,9 +266,9 @@ namespace R3DUnison.UI
             GUILayout.Label("SPEED", UnisonTheme.Header, GUILayout.Width(74));
             if (lobby.IsOwner)
             {
-                if (GUILayout.Button("−", UnisonTheme.Button, GUILayout.Width(44))) NudgeSpeed(lobby, -0.1f);
+                if (GUILayout.Button("−", UnisonTheme.Button, GUILayout.Width(44))) NudgeSpeed(rm, -0.1f);
                 GUILayout.Label($"×{lobby.SpeedMultiplier:0.0#}", UnisonTheme.Name, GUILayout.Width(70));
-                if (GUILayout.Button("+", UnisonTheme.Button, GUILayout.Width(44))) NudgeSpeed(lobby, +0.1f);
+                if (GUILayout.Button("+", UnisonTheme.Button, GUILayout.Width(44))) NudgeSpeed(rm, +0.1f);
                 GUILayout.Space(8);
                 GUILayout.Label("applies when a level starts", UnisonTheme.Dim);
             }
@@ -279,12 +279,13 @@ namespace R3DUnison.UI
             GUILayout.EndHorizontal();
         }
 
-        private void NudgeSpeed(Transport.SteamLobby lobby, float delta)
+        private void NudgeSpeed(RoomManager rm, float delta)
         {
-            float speed = Mathf.Clamp(Mathf.Round((lobby.SpeedMultiplier + delta) * 10f) / 10f, 0.5f, 2f);
-            lobby.SetSpeed(speed);
+            float speed = Mathf.Clamp(Mathf.Round((rm.Lobby.SpeedMultiplier + delta) * 10f) / 10f, 0.5f, 2f);
+            rm.Lobby.SetSpeed(speed);
             Main.Settings.RoomSpeedPref = speed;
             Main.Settings.Save(Main.Mod);
+            rm.NotifySpeedChanged();
         }
 
         private void DrawSession(RoomManager rm)
