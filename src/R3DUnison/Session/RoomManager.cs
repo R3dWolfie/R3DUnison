@@ -21,6 +21,9 @@ namespace R3DUnison.Session
         public float Accuracy;
         public bool Dead;
         public float StatsAt = -1000f;
+        public int SeqId;
+        public double SongPos;
+        public string StatsKey;
 
         public bool HasFreshStats => UnityEngine.Time.realtimeSinceStartup - StatsAt < 3f;
     }
@@ -196,6 +199,8 @@ namespace R3DUnison.Session
 
             float progress = 0f, accuracy = 1f;
             bool dead = false;
+            int seqId = 0;
+            double songPos = 0;
             try
             {
                 var controller = scrController.instance;
@@ -203,6 +208,8 @@ namespace R3DUnison.Session
                 progress = controller.percentComplete;
                 accuracy = controller.mistakesManager?.percentAcc ?? 1f;
                 dead = controller.currentState == States.Fail || controller.currentState == States.Fail2;
+                seqId = controller.currentSeqID;
+                songPos = ADOBase.conductor != null ? ADOBase.conductor.songposition_minusi : 0;
             }
             catch
             {
@@ -216,9 +223,20 @@ namespace R3DUnison.Session
                 self.Accuracy = accuracy;
                 self.Dead = dead;
                 self.StatsAt = now;
+                self.SeqId = seqId;
+                self.SongPos = songPos;
+                self.StatsKey = level.Key;
             }
             _transport.Broadcast(
-                Codec.Encode(MessageType.LiveStats, new LiveStatsMsg { Key = level.Key, Progress = progress, Accuracy = accuracy, Dead = dead }),
+                Codec.Encode(MessageType.LiveStats, new LiveStatsMsg
+                {
+                    Key = level.Key,
+                    Progress = progress,
+                    Accuracy = accuracy,
+                    Dead = dead,
+                    SeqId = seqId,
+                    SongPos = songPos,
+                }),
                 SendMode.Unreliable);
 
             // Death-sync rule: our death in the room's synced level restarts everyone.
@@ -331,6 +349,9 @@ namespace R3DUnison.Session
                         sender.Accuracy = stats.Accuracy;
                         sender.Dead = stats.Dead;
                         sender.StatsAt = UnityEngine.Time.realtimeSinceStartup;
+                        sender.SeqId = stats.SeqId;
+                        sender.SongPos = stats.SongPos;
+                        sender.StatsKey = stats.Key;
                     }
                     break;
                 }

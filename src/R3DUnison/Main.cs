@@ -40,6 +40,7 @@ namespace R3DUnison
                 UnityEngine.Object.DontDestroyOnLoad(_windowGo);
                 _windowGo.AddComponent<UI.MultiplayerWindow>();
                 _windowGo.AddComponent<UI.RosterOverlay>();
+                _windowGo.AddComponent<UI.GhostOverlay>();
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 Log("Enabled.");
             }

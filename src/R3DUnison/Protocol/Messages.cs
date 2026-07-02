@@ -27,13 +27,15 @@ namespace R3DUnison.Protocol
         ForceRestart,
     }
 
-    /// <summary>Periodic (unreliable) in-run snapshot for the roster overlay.</summary>
+    /// <summary>Periodic (unreliable) in-run snapshot for the roster overlay + ghost markers.</summary>
     public class LiveStatsMsg
     {
         [JsonProperty("k")] public string Key;
         [JsonProperty("p")] public float Progress;
         [JsonProperty("a")] public float Accuracy;
         [JsonProperty("d")] public bool Dead;
+        [JsonProperty("s")] public int SeqId;
+        [JsonProperty("t")] public double SongPos;
     }
 
     /// <summary>Death-sync room rule: someone died, everyone restarts together.</summary>
@@ -48,6 +50,9 @@ namespace R3DUnison.Protocol
         [JsonProperty("k")] public string Key;
         [JsonProperty("d")] public string Display;
         [JsonProperty("cp")] public int Checkpoint;
+        /// <summary>Custom levels: the level's folder name + .adofai file name, so peers can find their copy.</summary>
+        [JsonProperty("f")] public string Folder;
+        [JsonProperty("fn")] public string File;
     }
 
     public class LevelReadyMsg

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using R3DUnison.Protocol;
 using UnityEngine;
@@ -50,11 +51,18 @@ namespace R3DUnison.Session
             var rm = RoomManager.Instance;
             if (rm == null || !rm.SteamReady || !rm.InRoom || rm.Members.Count < 2 || !Main.Settings.SyncedStarts) return true;
             var presence = Game.LevelTracker.TryDetect();
-            if (presence == null || presence.IsCustom) return true; // custom-level sync: later milestone
+            if (presence == null) return true;
             // Quick retry of the level we just synced runs free — only fresh entries sync.
             if (presence.Key == _lastSyncedKey && Time.realtimeSinceStartup - Game.LevelTracker.LastExitRealtime < RetryWindowSeconds)
             {
                 return true;
+            }
+
+            // The game may call StartMusic again while we're holding — keep holding the latest.
+            if ((_phase == Phase.ClientArmed || _phase == Phase.HostCollecting) && presence.Key == _key)
+            {
+                Defer(conductor, onComplete, onSongScheduled);
+                return false;
             }
 
             if (_phase == Phase.ClientLoading && presence.Key == _key)
@@ -69,6 +77,21 @@ namespace R3DUnison.Session
 
             if (!rm.Lobby.IsOwner) return true; // non-host solo play runs free (v1)
 
+            string folder = null, file = null;
+            if (presence.IsCustom)
+            {
+                try
+                {
+                    string levelPath = ADOBase.levelPath;
+                    folder = Path.GetFileName(Path.GetDirectoryName(levelPath));
+                    file = Path.GetFileName(levelPath);
+                }
+                catch
+                {
+                    return true; // can't identify the custom level — run free
+                }
+            }
+
             _isInitiator = true;
             _phase = Phase.HostCollecting;
             _key = presence.Key;
@@ -76,7 +99,14 @@ namespace R3DUnison.Session
             Defer(conductor, onComplete, onSongScheduled);
             _peersReady.Clear();
             _deadline = Time.realtimeSinceStartup + 20f;
-            rm.SendAll(MessageType.StartLevel, new StartLevelMsg { Key = _key, Display = _display, Checkpoint = GCS.checkpointNum });
+            rm.SendAll(MessageType.StartLevel, new StartLevelMsg
+            {
+                Key = _key,
+                Display = _display,
+                Checkpoint = GCS.checkpointNum,
+                Folder = folder,
+                File = file,
+            });
             StatusLine = "SYNCED START · waiting for players…";
             Main.Log($"[sync] host gating {_key}, StartLevel broadcast");
             return false;
@@ -149,11 +179,6 @@ namespace R3DUnison.Session
         {
             var rm = RoomManager.Instance;
             if (rm == null || !rm.InRoom || _isInitiator || msg?.Key == null) return;
-            if (!msg.Key.StartsWith(OfficialPrefix))
-            {
-                StatusLine = "Host started a custom level — sync for customs isn't supported yet.";
-                return;
-            }
             var current = Game.LevelTracker.TryDetect();
             if (current != null && current.Key == msg.Key)
             {
@@ -164,13 +189,30 @@ namespace R3DUnison.Session
                 rm.SendAll(MessageType.Ready, new LevelReadyMsg { Key = msg.Key });
                 return;
             }
-            string scene = msg.Key.Substring(OfficialPrefix.Length);
-            if (!Application.CanStreamedLevelBeLoaded(scene))
+
+            bool official = msg.Key.StartsWith(OfficialPrefix);
+            string scene = null, customPath = null;
+            if (official)
             {
-                StatusLine = $"Can't load level '{msg.Display}'";
-                Main.Log($"[sync] scene '{scene}' not loadable");
-                return;
+                scene = msg.Key.Substring(OfficialPrefix.Length);
+                if (!Application.CanStreamedLevelBeLoaded(scene))
+                {
+                    StatusLine = $"Can't load level '{msg.Display}'";
+                    Main.Log($"[sync] scene '{scene}' not loadable");
+                    return;
+                }
             }
+            else
+            {
+                customPath = Game.CustomLevels.Resolve(msg.Folder, msg.File);
+                if (customPath == null)
+                {
+                    StatusLine = $"You don't have '{msg.Display}' — install it (TUF/Workshop) to join.";
+                    Main.Log($"[sync] custom level '{msg.Folder}' not found locally");
+                    return;
+                }
+            }
+
             _isInitiator = false;
             _key = msg.Key;
             _display = msg.Display;
@@ -180,9 +222,31 @@ namespace R3DUnison.Session
             try
             {
                 GCS.checkpointNum = msg.Checkpoint;
-                GCS.sceneToLoad = scene;
-                ADOBase.loader.LoadScene(scene);
-                Main.Log($"[sync] pulled into {scene} (checkpoint {msg.Checkpoint})");
+                if (official)
+                {
+                    GCS.sceneToLoad = scene;
+                    ADOBase.loader.LoadScene(scene);
+                    Main.Log($"[sync] pulled into {scene} (checkpoint {msg.Checkpoint})");
+                }
+                else
+                {
+                    string levelId = msg.Key.Substring("custom:".Length);
+                    var controller = scrController.instance;
+                    if (controller != null)
+                    {
+                        controller.LoadCustomLevel(customPath, levelId);
+                    }
+                    else
+                    {
+                        GCS.sceneToLoad = "scnGame";
+                        GCS.customLevelPaths = new[] { customPath };
+                        GCS.customLevelIndex = 0;
+                        GCS.loadCustomFromBundle = false;
+                        GCS.customLevelId = levelId;
+                        ADOBase.loader.LoadScene("scnGame");
+                    }
+                    Main.Log($"[sync] pulled into custom '{msg.Display}' ({customPath})");
+                }
             }
             catch (Exception e)
             {
