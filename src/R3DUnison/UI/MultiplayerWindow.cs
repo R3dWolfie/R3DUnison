@@ -314,6 +314,10 @@ namespace R3DUnison.UI
                 GUILayout.Space(4);
             }
             GUILayout.EndHorizontal();
+            foreach (var toast in rm.Toasts.Where(t => Time.realtimeSinceStartup - t.At < 8f))
+            {
+                GUILayout.Label($"{toast.Name}: {toast.Text}", UnisonTheme.Dim);
+            }
         }
     }
 }

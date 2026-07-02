@@ -16,23 +16,38 @@ namespace R3DUnison.UI
             var rm = RoomManager.Instance;
             if (rm == null || !rm.InRoom) return;
             bool syncActive = SyncedStart.Active;
-            if (Game.LevelTracker.Current == null && !syncActive) return;
-            if (rm.Members.Count <= 1 && !syncActive) return; // alone: nothing worth overlaying
+            var toasts = rm.Toasts.Where(t => Time.realtimeSinceStartup - t.At < 5f).ToList();
+            // Roster shows in-run with company; toasts show whenever recent (menu, solo, anywhere)
+            bool showRoster = (Game.LevelTracker.Current != null || syncActive)
+                && (rm.Members.Count > 1 || syncActive);
+            if (!showRoster && toasts.Count == 0) return;
 
             float scale = Mathf.Max(1f, Screen.height / 1080f);
             var previousMatrix = GUI.matrix;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
             UnisonTheme.Ensure();
 
-            var toasts = rm.Toasts.Where(t => Time.realtimeSinceStartup - t.At < 5f).ToList();
-            bool showResults = Scoreboard.LastRound != null && Time.realtimeSinceStartup - Scoreboard.LastRoundAt < 12f;
-            float height = 44 + rm.Members.Count * 30
-                + (SyncedStart.StatusLine != null ? 32 : 0)
-                + toasts.Count * 26
-                + (showResults ? 36 + Scoreboard.LastRound.Count * 26 : 0);
+            bool showResults = showRoster && Scoreboard.LastRound != null && Time.realtimeSinceStartup - Scoreboard.LastRoundAt < 12f;
+            float height = 40 + toasts.Count * 26;
+            if (showRoster)
+            {
+                height += rm.Members.Count * 30
+                    + (SyncedStart.StatusLine != null ? 32 : 0)
+                    + (showResults ? 36 + Scoreboard.LastRound.Count * 26 : 0);
+            }
             GUILayout.BeginArea(new Rect(16, 240, 320, height), UnisonTheme.Overlay);
             GUILayout.Label("R3D UNISON", UnisonTheme.OverlayHead);
             GUILayout.Space(4);
+            if (!showRoster)
+            {
+                foreach (var toast in toasts)
+                {
+                    GUILayout.Label($"{toast.Name}: {toast.Text}", UnisonTheme.Label);
+                }
+                GUILayout.EndArea();
+                GUI.matrix = previousMatrix;
+                return;
+            }
             if (SyncedStart.StatusLine != null)
             {
                 GUILayout.Label(SyncedStart.StatusLine, UnisonTheme.LevelText);
