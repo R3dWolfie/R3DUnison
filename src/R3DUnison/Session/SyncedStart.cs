@@ -65,17 +65,16 @@ namespace R3DUnison.Session
         }
 
         private static bool _autoSpectating;
-        private static bool _weSetAuto;
-        private static bool _autoPrev;
 
-        /// <summary>Watching a roommate's level play itself via the game's autoplay.</summary>
+        /// <summary>Watching a roommate — their level is loaded to its ready state and we
+        /// follow their ghost across the full map (we do NOT play it ourselves).</summary>
         public static bool AutoSpectating => _autoSpectating;
 
         /// <summary>
-        /// Load the level a roommate is playing and watch it play out via autoplay — the
-        /// game renders the map in motion, plays the music, and drives the camera itself
-        /// (far more robust than gating a frozen, black-screened level). Exiting the level
-        /// or the host starting a real round turns autoplay back off.
+        /// Load the level a roommate is playing and hold it at its "ready" state (full map
+        /// visible, not playing) — StartMusic is blocked while spectating. The camera follows
+        /// the player's ghost across the loaded map. Exiting the level or joining a real round
+        /// ends spectate.
         /// </summary>
         public static void SpectateInto(MemberState target)
         {
@@ -118,7 +117,6 @@ namespace R3DUnison.Session
                     }
                 }
 
-                EnableAutoplay();
                 _autoSpectating = true;
                 GCS.checkpointNum = 0;
                 if (official)
@@ -145,8 +143,8 @@ namespace R3DUnison.Session
                         ADOBase.loader.LoadScene("scnGame");
                     }
                 }
-                StatusLine = "SPECTATING (autoplay) — exit via the pause menu";
-                Main.Log($"[spectate] autoplay into {key}");
+                StatusLine = "SPECTATING — ◄ ► switch player · exit via the pause menu";
+                Main.Log($"[spectate] spectating {key}");
             }
             catch (System.Exception e)
             {
@@ -155,28 +153,9 @@ namespace R3DUnison.Session
             }
         }
 
-        private static void EnableAutoplay()
-        {
-            try
-            {
-                _autoPrev = RDC.auto;
-                RDC.auto = true;
-                _weSetAuto = true;
-            }
-            catch
-            {
-                _weSetAuto = false;
-            }
-        }
-
-        /// <summary>Turn our autoplay spectate off, restoring the player's own autoplay setting.</summary>
+        /// <summary>End spectating (called on level exit / joining a round / leaving the room).</summary>
         public static void StopAutoSpectate()
         {
-            if (_weSetAuto)
-            {
-                try { RDC.auto = _autoPrev; } catch { }
-                _weSetAuto = false;
-            }
             _autoSpectating = false;
         }
 
@@ -217,7 +196,9 @@ namespace R3DUnison.Session
         public static bool OnStartMusic(scrConductor conductor, Action onComplete, Action onSongScheduled)
         {
             if (_passthrough) return true;
-            if (_autoSpectating) return true; // autoplay spectate drives itself — never gate it
+            // Spectating: block play so the level holds at its ready state (full map visible)
+            // while we follow the target's ghost across it.
+            if (_autoSpectating) return false;
             var rm = RoomManager.Instance;
             if (rm == null || !rm.SteamReady || !rm.InRoom) return true;
             var presence = Game.LevelTracker.TryDetect();

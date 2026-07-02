@@ -29,22 +29,40 @@ namespace R3DUnison.Game
         private void LateUpdate()
         {
             var rm = RoomManager.Instance;
-            var mine = LevelTracker.Current;
-            if (rm == null || !rm.InRoom || rm.Members.Count < 2 || mine == null)
+            if (rm == null || !rm.InRoom || rm.Members.Count < 2)
             {
                 DestroyAll();
                 return;
             }
-            if (_levelKey != mine.Key)
-            {
-                DestroyAll(); // scene changed under us — template and pairs are stale
-                _levelKey = mine.Key;
-            }
 
-            List<scrFloor> floors;
+            // Two modes: in a level → position on the shared track; in the level-select menu
+            // (a shared freeroam world) → position at each member's streamed planet coords.
+            // Both render REAL cloned planets so the menu matches in-game.
+            string myKey;
+            bool menuMode;
+            var mine = LevelTracker.Current;
             try
             {
-                floors = ADOBase.lm?.listFloors;
+                if (mine != null) { myKey = mine.Key; menuMode = false; }
+                else if (ADOBase.isLevelSelect) { myKey = "menu:" + ADOBase.sceneName; menuMode = true; }
+                else { DestroyAll(); return; }
+            }
+            catch
+            {
+                DestroyAll();
+                return;
+            }
+
+            if (_levelKey != myKey)
+            {
+                DestroyAll(); // scene changed under us — template and pairs are stale
+                _levelKey = myKey;
+            }
+
+            List<scrFloor> floors = null;
+            try
+            {
+                if (!menuMode) floors = ADOBase.lm?.listFloors;
                 if (_template == null)
                 {
                     var source = scrController.instance?.chosenPlanet?.gameObject;
@@ -65,13 +83,34 @@ namespace R3DUnison.Game
             {
                 return;
             }
-            if (floors == null || floors.Count == 0 || _template == null) return;
+            if (_template == null) return;
+            if (!menuMode && (floors == null || floors.Count == 0)) return;
 
             var seen = new HashSet<ulong>();
             foreach (var member in rm.Members)
             {
-                if (member.IsSelf || member.Dead || !member.HasFreshStats || member.StatsKey != mine.Key) continue;
-                if (!UI.GhostOverlay.TryGetGhostPosition(member, floors, out var stationary, out var orbit, out int seq)) continue;
+                if (member.IsSelf || member.Dead || !member.HasFreshStats || member.StatsKey != myKey) continue;
+
+                Vector3 stationary, orbit;
+                bool color1OnTile;
+                if (menuMode)
+                {
+                    // Idle planet pair orbiting the member's streamed menu position.
+                    Vector3 center = new Vector3(member.PosX, member.PosY, 0f);
+                    float ang = Time.time * 1.8f;
+                    Vector3 off = new Vector3(Mathf.Cos(ang), Mathf.Sin(ang), 0f) * 0.8f;
+                    stationary = center + off;
+                    orbit = center - off;
+                    color1OnTile = true;
+                }
+                else
+                {
+                    if (!UI.GhostOverlay.TryGetGhostPosition(member, floors, out stationary, out orbit, out int seq)) continue;
+                    // Which color sits ON the tile alternates each note (parity) — the real two
+                    // planets keep their colors and take turns pivoting.
+                    color1OnTile = (seq & 1) == 0;
+                }
+
                 seen.Add(member.Id);
                 // `== null` also catches Unity-destroyed clones (e.g. after a same-key retry,
                 // where the scene reloaded but our _levelKey didn't change) — respawn them.
@@ -87,10 +126,6 @@ namespace R3DUnison.Game
                     RealPlanets.Add(member.Id);
                 }
                 if (pair.OnTile == null || pair.Orbiting == null) continue;
-                // Which color sits ON the tile alternates each note (parity) — the real two
-                // planets keep their colors and take turns pivoting. Placing the fixed-color
-                // clones by parity matches that, instead of the color appearing to swap.
-                bool color1OnTile = (seq & 1) == 0;
                 var tileGo = color1OnTile ? pair.OnTile : pair.Orbiting;
                 var orbitGo = color1OnTile ? pair.Orbiting : pair.OnTile;
                 // Slightly behind the local play plane so ghosts never cover your planets

@@ -186,11 +186,16 @@ namespace R3DUnison.UI
                 if (ax < -80 || ax > Screen.width + 80 || ay < -80 || ay > Screen.height + 80) continue;
 
                 Color color1 = member.HasColors ? member.Color1 : fallback;
-                Color color2 = member.HasColors ? member.Color2 : Color.Lerp(fallback, Color.white, 0.45f);
-                float orbitPx = new Vector2(bx - ax, by - ay).magnitude * 0.5f;
-                _planet.fontSize = Mathf.Clamp(Mathf.RoundToInt(orbitPx * 0.9f), 12, Mathf.RoundToInt(70f * scale));
-                DrawPlanet(ax, ay, color1);
-                DrawPlanet(bx, by, color2);
+                // Real cloned planets now render menu ghosts too — only draw flat circles as a
+                // fallback for members not (yet) rendered by GhostPlanets.
+                if (!Game.GhostPlanets.RealPlanets.Contains(member.Id))
+                {
+                    Color color2 = member.HasColors ? member.Color2 : Color.Lerp(fallback, Color.white, 0.45f);
+                    float orbitPx = new Vector2(bx - ax, by - ay).magnitude * 0.5f;
+                    _planet.fontSize = Mathf.Clamp(Mathf.RoundToInt(orbitPx * 0.9f), 12, Mathf.RoundToInt(70f * scale));
+                    DrawPlanet(ax, ay, color1);
+                    DrawPlanet(bx, by, color2);
+                }
 
                 Vector3 screenC = cam.WorldToScreenPoint(center);
                 float cx = screenC.x, cy = Screen.height - screenC.y;

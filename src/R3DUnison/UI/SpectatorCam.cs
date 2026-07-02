@@ -5,12 +5,13 @@ using UnityEngine;
 namespace R3DUnison.UI
 {
     /// <summary>
-    /// Spectator behavior, two flavors:
-    /// - Dead: on the fail screen with a living roommate, the camera follows the leading
-    ///   survivor; restart input is swallowed (FailInputPatch) so you keep watching — R retries.
-    /// - Loaded-in (SPECTATE button): the level sits gated pre-music while the camera follows;
-    ///   the next synced round releases the gate and you're playing.
+    /// Spectating: the level is loaded (or frozen after death) and the camera FOLLOWS the
+    /// selected player's ghost across the full map. Left/Right switch players; the target's
+    /// audio plays in sync. Since the map isn't playing locally, this shows their position +
+    /// colors + trails, not their exact hit-effects (we only receive positions over the wire).
+    /// High execution order so our camera move runs after the game's and wins.
     /// </summary>
+    [DefaultExecutionOrder(1000)]
     public class SpectatorCam : MonoBehaviour
     {
         public static bool HoldingFailScreen { get; private set; }
@@ -92,17 +93,26 @@ namespace R3DUnison.UI
                 if (Input.GetKeyDown(KeyCode.RightArrow)) _targetIndex++;
                 if (Input.GetKeyDown(KeyCode.LeftArrow)) _targetIndex--;
             }
-            if (HoldingFailScreen && Input.GetKeyDown(KeyCode.R))
+            if (HoldingFailScreen)
             {
-                HoldingFailScreen = false;
-                HintLine = null;
-                try
+                if (Input.GetKeyDown(KeyCode.R))
                 {
-                    ADOBase.RestartScene();
+                    HoldingFailScreen = false;
+                    HintLine = null;
+                    try { ADOBase.RestartScene(); }
+                    catch { /* scene mid-transition; next fail input will do it */ }
                 }
-                catch
+                // S: drop into full spectate — reload the level to its ready state so you see
+                // the WHOLE map (not just your frozen death spot) and follow the player.
+                else if (Input.GetKeyDown(KeyCode.S) && rm != null)
                 {
-                    // scene mid-transition; the next fail input will do it
+                    var mine = Game.LevelTracker.Current;
+                    var cands = mine != null ? Candidates(rm, mine.Key) : null;
+                    if (cands != null && cands.Count > 0)
+                    {
+                        HoldingFailScreen = false;
+                        SyncedStart.SpectateInto(cands[((_targetIndex % cands.Count) + cands.Count) % cands.Count]);
+                    }
                 }
             }
         }
@@ -151,20 +161,19 @@ namespace R3DUnison.UI
                 if (dead)
                 {
                     HoldingFailScreen = true;
-                    HintLine = $"SPECTATING {target.Name} — R to retry{switchHint}";
+                    HintLine = $"SPECTATING {target.Name} — R retry · S full map{switchHint}";
                 }
                 else
                 {
                     HintLine = $"SPECTATING {target.Name}{switchHint}";
                 }
 
-                // While dead the level is frozen (no music) so play the target's synced audio;
-                // during autoplay the game already plays it.
-                if (dead) UpdateSpectateAudio(target);
-                else StopSpectateAudio();
+                // Neither mode is playing locally (dead = frozen, spectate = held at ready),
+                // so play the target's synced audio.
+                UpdateSpectateAudio(target);
 
-                // Follow the selected player's ghost so the camera tracks THEM (not the autoplay
-                // planet / your frozen corpse). Set both the smoothing target and the position.
+                // Follow the selected player's ghost so the camera tracks THEM. Hard-set the
+                // position (high execution order wins over the game's camera).
                 var floors = ADOBase.lm?.listFloors;
                 if (floors == null || floors.Count == 0) return;
                 if (!GhostOverlay.TryGetGhostPosition(target, floors, out var stationary, out var orbit, out _)) return;
@@ -174,8 +183,7 @@ namespace R3DUnison.UI
                 Vector3 focus = (stationary + orbit) * 0.5f;
                 cam.topos = new Vector2(focus.x, focus.y);
                 var t = cam.transform;
-                float lerp = autoSpec ? 10f : 6f;
-                t.position = Vector3.Lerp(t.position, new Vector3(focus.x, focus.y, t.position.z), lerp * Time.deltaTime);
+                t.position = Vector3.Lerp(t.position, new Vector3(focus.x, focus.y, t.position.z), 8f * Time.deltaTime);
             }
             catch
             {
