@@ -60,6 +60,11 @@ namespace R3DUnison.UI
                 DrawBrowser(rm);
             }
 
+            if (Session.SyncedStart.StatusLine != null)
+            {
+                GUILayout.Space(10);
+                GUILayout.Label(Session.SyncedStart.StatusLine, UnisonTheme.LevelText);
+            }
             if (rm != null && !string.IsNullOrEmpty(rm.Status))
             {
                 GUILayout.Space(10);
@@ -168,6 +173,14 @@ namespace R3DUnison.UI
                 GUILayout.FlexibleSpace();
                 if (!connected) GUILayout.Label("connecting…", UnisonTheme.Dim);
                 GUILayout.EndHorizontal();
+            }
+
+            GUILayout.Space(10);
+            bool sync = UnisonTheme.Toggle(Main.Settings.SyncedStarts, "Synced starts — host launching a level pulls everyone in");
+            if (sync != Main.Settings.SyncedStarts)
+            {
+                Main.Settings.SyncedStarts = sync;
+                Main.Settings.Save(Main.Mod);
             }
 
             GUILayout.Space(14);

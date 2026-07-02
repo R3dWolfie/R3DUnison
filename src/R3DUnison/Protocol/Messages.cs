@@ -21,6 +21,30 @@ namespace R3DUnison.Protocol
         PlayerEvent,
         PlayerDeath,
         Results,
+        StartLevel,
+        SyncAbort,
+    }
+
+    /// <summary>Initiator → all: load this level and hold at the start gate.</summary>
+    public class StartLevelMsg
+    {
+        [JsonProperty("k")] public string Key;
+        [JsonProperty("d")] public string Display;
+        [JsonProperty("cp")] public int Checkpoint;
+    }
+
+    public class LevelReadyMsg
+    {
+        [JsonProperty("k")] public string Key;
+    }
+
+    public class CountdownMsg
+    {
+        [JsonProperty("ms")] public int DelayMs;
+    }
+
+    public class SyncAbortMsg
+    {
     }
 
     public class Envelope

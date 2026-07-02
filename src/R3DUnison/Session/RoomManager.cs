@@ -62,6 +62,7 @@ namespace R3DUnison.Session
                 // never in the base-game flow — so we pump every frame ourselves.
                 // Double-pumping where the game does too is harmless (queue drains once).
                 SteamIntegration.instance?.CheckCallbacks();
+                SyncedStart.Tick();
                 return;
             }
             if (!SteamIntegration.initialized) return;
@@ -119,6 +120,7 @@ namespace R3DUnison.Session
 
         private void OnLevelExited()
         {
+            SyncedStart.OnLocalLevelExited();
             if (!SteamReady || !InRoom) return;
             Lobby.SetLevelInfo(null, null);
             // An auto-room with nobody else in it dissolves when you stop playing;
@@ -146,12 +148,19 @@ namespace R3DUnison.Session
 
         private void OnLeft()
         {
+            SyncedStart.ResetAll();
             _transport?.Dispose();
             _transport = null;
             Members.Clear();
             IsAutoRoom = false;
             _announcedLevel = null;
             Status = "Left the room.";
+        }
+
+        /// <summary>Reliable broadcast to everyone we can reach in the room.</summary>
+        internal void SendAll(MessageType type, object payload)
+        {
+            _transport?.Broadcast(Codec.Encode(type, payload), SendMode.Reliable);
         }
 
         private void OnRoomsListed(List<RoomInfo> rooms)
@@ -211,11 +220,24 @@ namespace R3DUnison.Session
                         SendHello(); // answer once so the other side marks us too
                     }
                     break;
+                case MessageType.StartLevel:
+                    SyncedStart.OnStartLevel(from, Codec.Payload<StartLevelMsg>(envelope));
+                    break;
+                case MessageType.Ready:
+                    SyncedStart.OnPeerReady(from, Codec.Payload<LevelReadyMsg>(envelope));
+                    break;
+                case MessageType.CountdownStart:
+                    SyncedStart.OnGo(from, Codec.Payload<CountdownMsg>(envelope));
+                    break;
+                case MessageType.SyncAbort:
+                    SyncedStart.OnAbort(from);
+                    break;
             }
         }
 
         public void Dispose()
         {
+            SyncedStart.ResetAll();
             Core.MainThreadDispatcher.OnFrame -= Tick;
             Game.LevelTracker.Entered -= OnLevelEntered;
             Game.LevelTracker.Exited -= OnLevelExited;

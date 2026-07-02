@@ -13,18 +13,25 @@ namespace R3DUnison.UI
         private void OnGUI()
         {
             var rm = RoomManager.Instance;
-            if (rm == null || !rm.InRoom || Game.LevelTracker.Current == null) return;
-            if (rm.Members.Count <= 1) return; // alone: nothing worth overlaying
+            if (rm == null || !rm.InRoom) return;
+            bool syncActive = SyncedStart.Active;
+            if (Game.LevelTracker.Current == null && !syncActive) return;
+            if (rm.Members.Count <= 1 && !syncActive) return; // alone: nothing worth overlaying
 
             float scale = Mathf.Max(1f, Screen.height / 1080f);
             var previousMatrix = GUI.matrix;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
             UnisonTheme.Ensure();
 
-            float height = 44 + rm.Members.Count * 30;
-            GUILayout.BeginArea(new Rect(16, 240, 250, height), UnisonTheme.Overlay);
+            float height = 44 + rm.Members.Count * 30 + (SyncedStart.StatusLine != null ? 32 : 0);
+            GUILayout.BeginArea(new Rect(16, 240, 300, height), UnisonTheme.Overlay);
             GUILayout.Label("R3D UNISON", UnisonTheme.OverlayHead);
             GUILayout.Space(4);
+            if (SyncedStart.StatusLine != null)
+            {
+                GUILayout.Label(SyncedStart.StatusLine, UnisonTheme.LevelText);
+                GUILayout.Space(4);
+            }
             foreach (var member in rm.Members)
             {
                 GUILayout.BeginHorizontal();

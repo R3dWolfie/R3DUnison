@@ -27,7 +27,23 @@ namespace R3DUnison.Game
         public static event Action<LevelPresence> Entered;
         public static event Action Exited;
 
+        /// <summary>Realtime timestamp of the last presence→none transition (retry heuristics).</summary>
+        public static float LastExitRealtime { get; private set; } = -1000f;
+
         private static bool _started;
+
+        /// <summary>On-demand detection (used by the StartMusic gate, which can fire before the frame poll).</summary>
+        public static LevelPresence TryDetect()
+        {
+            try
+            {
+                return Detect();
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         public static void Start()
         {
@@ -60,6 +76,7 @@ namespace R3DUnison.Game
             DebugTrace(detectError);
             bool changed = Current == null ? now != null : !Current.Equals(now);
             if (!changed) return;
+            if (now == null && Current != null) LastExitRealtime = UnityEngine.Time.realtimeSinceStartup;
             Current = now;
             if (now != null) Entered?.Invoke(now);
             else Exited?.Invoke();
