@@ -76,6 +76,7 @@ namespace R3DUnison.Session
                 SyncedStart.Tick();
                 TickLiveStats();
                 Scoreboard.Tick();
+                TickRoomSpeed();
                 return;
             }
             if (!SteamIntegration.initialized) return;
@@ -171,6 +172,7 @@ namespace R3DUnison.Session
             LevelTransfer.PeerReset();
             Scoreboard.ResetSession();
             Toasts.Clear();
+            RestoreSpeed();
             _transport?.Dispose();
             _transport = null;
             Members.Clear();
@@ -293,6 +295,39 @@ namespace R3DUnison.Session
                 DoForceRestart(level.Key);
             }
             _localDead = dead;
+        }
+
+        private bool _speedAsserted;
+
+        // Custom levels multiply their pitch AND bake their timing from GCS.currentSpeedTrial
+        // at load (the Speed Trial mechanism) — keep it asserted while a room speed is set so
+        // every load, including retries and pulled-in clients, builds at the right speed.
+        private void TickRoomSpeed()
+        {
+            if (!InRoom)
+            {
+                RestoreSpeed();
+                return;
+            }
+            float speed = Lobby.SpeedMultiplier;
+            if (UnityEngine.Mathf.Abs(speed - 1f) > 0.004f)
+            {
+                GCS.currentSpeedTrial = speed;
+                _speedAsserted = true;
+            }
+            else
+            {
+                RestoreSpeed();
+            }
+        }
+
+        private void RestoreSpeed()
+        {
+            if (_speedAsserted)
+            {
+                GCS.currentSpeedTrial = 1f;
+                _speedAsserted = false;
+            }
         }
 
         private void DoForceRestart(string key)

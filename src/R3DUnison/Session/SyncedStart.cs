@@ -69,13 +69,17 @@ namespace R3DUnison.Session
         {
             if (_passthrough) return true;
             var rm = RoomManager.Instance;
-            if (rm == null || !rm.SteamReady || !rm.InRoom || rm.Members.Count < 2 || !Main.Settings.SyncedStarts) return true;
+            if (rm == null || !rm.SteamReady || !rm.InRoom) return true;
             var presence = Game.LevelTracker.TryDetect();
             if (presence == null) return true;
+            // Room speed: customs get it at load via GCS.currentSpeedTrial (kept asserted by
+            // RoomManager while in a room); official levels ignore that var, so multiply the
+            // song pitch here — before StartMusic schedules — for every in-room run.
+            if (!presence.IsCustom) ApplyRoomSpeed(conductor);
+            if (rm.Members.Count < 2 || !Main.Settings.SyncedStarts) return true;
             // Quick retry of the level we just synced runs free — only fresh entries sync.
             if (presence.Key == _lastSyncedKey && Time.realtimeSinceStartup - Game.LevelTracker.LastExitRealtime < RetryWindowSeconds)
             {
-                ApplyRoomSpeed(conductor); // handicap persists across retries
                 return true;
             }
 
@@ -192,7 +196,6 @@ namespace R3DUnison.Session
             _lastSyncedKey = key;
             if (conductor != null) // Unity-null: scene may have unloaded underneath us
             {
-                ApplyRoomSpeed(conductor);
                 try
                 {
                     _passthrough = true;

@@ -270,7 +270,7 @@ namespace R3DUnison.UI
                 GUILayout.Label($"×{lobby.SpeedMultiplier:0.0#}", UnisonTheme.Name, GUILayout.Width(70));
                 if (GUILayout.Button("+", UnisonTheme.Button, GUILayout.Width(44))) NudgeSpeed(lobby, +0.1f);
                 GUILayout.Space(8);
-                GUILayout.Label("applies on synced starts", UnisonTheme.Dim);
+                GUILayout.Label("applies when a level starts", UnisonTheme.Dim);
             }
             else
             {
