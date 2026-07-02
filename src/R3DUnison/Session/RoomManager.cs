@@ -30,6 +30,9 @@ namespace R3DUnison.Session
         public UnityEngine.Color Color2;
         public float PosX;
         public float PosY;
+        public bool Paused;
+        /// <summary>Smoothed round-trip time in ms (0 = not measured yet).</summary>
+        public float RttMs;
 
         public bool HasFreshStats => UnityEngine.Time.realtimeSinceStartup - StatsAt < 3f;
     }
@@ -84,6 +87,7 @@ namespace R3DUnison.Session
                 Scoreboard.Tick();
                 TickRoomSpeed();
                 TickSpeedRestart();
+                TickPings();
                 return;
             }
             if (!SteamIntegration.initialized) return;
@@ -241,7 +245,7 @@ namespace R3DUnison.Session
             _statsSentAt = now;
 
             float progress = 0f, accuracy = 1f;
-            bool dead = false, won = false;
+            bool dead = false, won = false, paused = false;
             int seqId = 0;
             double songPos = 0;
             try
@@ -252,6 +256,7 @@ namespace R3DUnison.Session
                 accuracy = controller.mistakesManager?.percentAcc ?? 1f;
                 dead = controller.currentState == States.Fail || controller.currentState == States.Fail2;
                 won = controller.currentState == States.Won;
+                paused = controller.paused;
                 seqId = controller.currentSeqID;
                 songPos = ADOBase.conductor != null ? ADOBase.conductor.songposition_minusi : 0;
             }
@@ -304,6 +309,20 @@ namespace R3DUnison.Session
                     Main.Log("[deathsync] full wipe — restarting the room");
                     DoForceRestart(level.Key);
                 }
+            }
+        }
+
+        private float _lastPingAt;
+
+        private void TickPings()
+        {
+            if (!InRoom || _transport == null) return;
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            if (now - _lastPingAt < 4f) return;
+            _lastPingAt = now;
+            foreach (var member in Members.Where(m => !m.IsSelf && m.P2PConnected))
+            {
+                SendToPeer(member.Id, MessageType.Ping, new PingMsg { T = now });
             }
         }
 
@@ -508,6 +527,26 @@ namespace R3DUnison.Session
                 case MessageType.Ready:
                     SyncedStart.OnPeerReady(from, Codec.Payload<LevelReadyMsg>(envelope));
                     break;
+                case MessageType.Ping:
+                {
+                    var ping = Codec.Payload<PingMsg>(envelope);
+                    if (ping != null) SendToPeer(from, MessageType.Pong, ping);
+                    break;
+                }
+                case MessageType.Pong:
+                {
+                    var pong = Codec.Payload<PingMsg>(envelope);
+                    var pinged = Members.FirstOrDefault(m => m.Id == from);
+                    if (pong != null && pinged != null)
+                    {
+                        float rtt = (float)((UnityEngine.Time.realtimeSinceStartup - pong.T) * 1000.0);
+                        if (rtt >= 0f && rtt < 5000f)
+                        {
+                            pinged.RttMs = pinged.RttMs <= 0f ? rtt : pinged.RttMs * 0.7f + rtt * 0.3f;
+                        }
+                    }
+                    break;
+                }
                 case MessageType.CountdownStart:
                     SyncedStart.OnGo(from, Codec.Payload<CountdownMsg>(envelope));
                     break;

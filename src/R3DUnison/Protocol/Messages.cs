@@ -32,6 +32,14 @@ namespace R3DUnison.Protocol
         LevelDecline,
         RunResult,
         Chat,
+        Ping,
+        Pong,
+    }
+
+    /// <summary>RTT probe; Pong echoes T back so the sender computes round-trip.</summary>
+    public class PingMsg
+    {
+        [JsonProperty("t")] public double T;
     }
 
     /// <summary>Terminal result of a run (sent on level completion).</summary>
@@ -91,6 +99,7 @@ namespace R3DUnison.Protocol
         /// <summary>Menu presence ("menu:" keys): planet world position in the level-select scene.</summary>
         [JsonProperty("px")] public float PosX;
         [JsonProperty("py")] public float PosY;
+        [JsonProperty("pp")] public bool Paused;
     }
 
     /// <summary>Death-sync room rule: someone died, everyone restarts together.</summary>
