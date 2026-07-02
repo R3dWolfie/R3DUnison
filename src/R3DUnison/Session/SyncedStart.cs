@@ -219,6 +219,18 @@ namespace R3DUnison.Session
                 _deadline = Time.realtimeSinceStartup + (_spectating ? 3600f : 30f);
                 StatusLine = _spectating ? "SPECTATING · joins the next round" : "SYNCED START · waiting for host…";
                 rm.SendAll(MessageType.Ready, new LevelReadyMsg { Key = _key });
+                if (_spectating)
+                {
+                    // The scene's black wipe only clears when music schedules — which we're
+                    // holding. Clear it so the spectator actually sees the level.
+                    try
+                    {
+                        scrUIController.instance?.WipeFromBlack(withSound: false);
+                    }
+                    catch
+                    {
+                    }
+                }
                 Main.Log(_spectating ? "[spectate] gate armed" : "[sync] restart-gate armed");
                 return false;
             }

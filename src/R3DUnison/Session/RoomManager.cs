@@ -128,6 +128,7 @@ namespace R3DUnison.Session
         private void OnLevelEntered(Game.LevelPresence level)
         {
             if (!SteamReady) return;
+            if (InRoom) SendHello(); // resample planet colors (levels can recolor them)
             if (InRoom)
             {
                 // Host playing something new: update what the room advertises
@@ -475,15 +476,33 @@ namespace R3DUnison.Session
 
         private void SendHello()
         {
+            // Live planet colors beat the settings file: they include custom colors and
+            // whatever the current level has recolored the planets to.
             string color1 = "", color2 = "";
             try
             {
-                color1 = UnityEngine.ColorUtility.ToHtmlStringRGB(Persistence.GetPlayerColor(red: true).ToRealColor());
-                color2 = UnityEngine.ColorUtility.ToHtmlStringRGB(Persistence.GetPlayerColor(red: false).ToRealColor());
+                var controller = scrController.instance;
+                if (controller != null && controller.planetRed != null && controller.planetBlue != null)
+                {
+                    color1 = UnityEngine.ColorUtility.ToHtmlStringRGB(controller.planetRed.planetRenderer.planetColor.ToRealColor());
+                    color2 = UnityEngine.ColorUtility.ToHtmlStringRGB(controller.planetBlue.planetRenderer.planetColor.ToRealColor());
+                }
             }
             catch
             {
-                // color prefs unavailable — ghosts fall back to the palette
+                color1 = "";
+            }
+            if (string.IsNullOrEmpty(color1))
+            {
+                try
+                {
+                    color1 = UnityEngine.ColorUtility.ToHtmlStringRGB(Persistence.GetPlayerColor(red: true).ToRealColor());
+                    color2 = UnityEngine.ColorUtility.ToHtmlStringRGB(Persistence.GetPlayerColor(red: false).ToRealColor());
+                }
+                catch
+                {
+                    // color prefs unavailable — ghosts fall back to the palette
+                }
             }
             _transport?.Broadcast(
                 Codec.Encode(MessageType.Hello, new Hello { Name = SteamFriends.GetPersonaName(), Color1 = color1, Color2 = color2 }),
