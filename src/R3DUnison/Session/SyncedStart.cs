@@ -75,6 +75,17 @@ namespace R3DUnison.Session
             var rm = RoomManager.Instance;
             string key = target?.StatsKey;
             if (rm == null || !rm.InRoom || key == null || key.StartsWith("menu:") || Active) return;
+            try
+            {
+                if (ADOBase.isLevelEditor)
+                {
+                    StatusLine = "Leave the editor first — spectating replaces the current scene.";
+                    return;
+                }
+            }
+            catch
+            {
+            }
             string tail = key.Substring(key.IndexOf(':') + 1);
             try
             {
@@ -389,6 +400,19 @@ namespace R3DUnison.Session
                 _phase = Phase.ClientArmed;
                 rm.SendAll(MessageType.Ready, new LevelReadyMsg { Key = msg.Key });
                 return;
+            }
+
+            // Never yank someone out of an editor session — unsaved maps die that way.
+            try
+            {
+                if (ADOBase.isLevelEditor)
+                {
+                    StatusLine = $"Host started '{msg.Display}' — you're in the editor, join from the menu when ready.";
+                    return;
+                }
+            }
+            catch
+            {
             }
 
             bool official = msg.Key.StartsWith(OfficialPrefix);

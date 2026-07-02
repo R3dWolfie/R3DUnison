@@ -109,30 +109,45 @@ namespace R3DUnison.Game
         private static LevelPresence Detect()
         {
             var controller = scrController.instance;
-            if (controller == null || !controller.gameworld) return null;
-            if (ADOBase.isLevelEditor || ADOBase.isFreeroamScene) return null;
+            if (controller == null) return null;
+
+            if (ADOBase.isLevelEditor)
+            {
+                // Editor PLAYTESTS count — the community plays TUF levels straight from
+                // the editor. Actual editing (paused) stays private. Folder-keyed only:
+                // GCS.customLevelId can be stale from an earlier CLS session here.
+                if (controller.paused) return null;
+                return CustomPresence(useId: false);
+            }
+
+            if (!controller.gameworld || ADOBase.isFreeroamScene) return null;
 
             if (ADOBase.isScnGame && !ADOBase.isInternalLevel)
             {
-                // Custom level: prefer the stable id, fall back to the level folder name
-                string path = ADOBase.levelPath;
-                string display = null;
-                if (!string.IsNullOrEmpty(path))
-                {
-                    display = Path.GetFileName(Path.GetDirectoryName(path));
-                    if (string.IsNullOrEmpty(display)) display = Path.GetFileNameWithoutExtension(path);
-                }
-                string id = GCS.customLevelId;
-                string key = "custom:" + (string.IsNullOrEmpty(id) ? display : id);
-                if (string.IsNullOrEmpty(display)) display = string.IsNullOrEmpty(id) ? "custom level" : id;
-                if (key == "custom:") return null;
-                return new LevelPresence { Key = key, Display = display, IsCustom = true };
+                return CustomPresence(useId: true);
             }
 
             string name = controller.levelName;
             if (string.IsNullOrEmpty(name)) name = scrController.currentWorldString;
             if (string.IsNullOrEmpty(name)) return null;
             return new LevelPresence { Key = "official:" + name, Display = name, IsCustom = false };
+        }
+
+        private static LevelPresence CustomPresence(bool useId)
+        {
+            // Prefer the stable id (CLS/workshop), fall back to the level folder name
+            string path = ADOBase.levelPath;
+            string display = null;
+            if (!string.IsNullOrEmpty(path))
+            {
+                display = Path.GetFileName(Path.GetDirectoryName(path));
+                if (string.IsNullOrEmpty(display)) display = Path.GetFileNameWithoutExtension(path);
+            }
+            string id = useId ? GCS.customLevelId : null;
+            string key = "custom:" + (string.IsNullOrEmpty(id) ? display : id);
+            if (key == "custom:") return null;
+            if (string.IsNullOrEmpty(display)) display = string.IsNullOrEmpty(id) ? "custom level" : id;
+            return new LevelPresence { Key = key, Display = display, IsCustom = true };
         }
     }
 }
