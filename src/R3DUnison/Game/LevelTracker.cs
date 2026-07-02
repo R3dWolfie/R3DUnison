@@ -47,19 +47,46 @@ namespace R3DUnison.Game
         private static void Poll()
         {
             LevelPresence now = null;
+            string detectError = null;
             try
             {
                 now = Detect();
             }
-            catch
+            catch (Exception e)
             {
-                // scene mid-transition; treat as no presence
+                // scene mid-transition; treat as no presence — but never silently
+                detectError = $"{e.GetType().Name}: {e.Message}";
             }
+            DebugTrace(detectError);
             bool changed = Current == null ? now != null : !Current.Equals(now);
             if (!changed) return;
             Current = now;
             if (now != null) Entered?.Invoke(now);
             else Exited?.Invoke();
+        }
+
+        private static string _lastTrace;
+
+        // Logs the raw inputs of Detect() whenever they change — cheap, and it turns
+        // "presence silently says none" into a readable line in the UMM log.
+        private static void DebugTrace(string detectError)
+        {
+            string state;
+            try
+            {
+                var c = scrController.instance;
+                state = c == null
+                    ? "controller=null"
+                    : $"scene='{ADOBase.sceneName}' gameworld={c.gameworld} puzzle={c.isPuzzleRoom} lvl='{c.levelName}' world='{scrController.currentWorldString}' editor={ADOBase.isLevelEditor} freeroam={ADOBase.isFreeroamScene} scnGame={ADOBase.isScnGame} internal={ADOBase.isInternalLevel}";
+            }
+            catch (Exception e)
+            {
+                state = $"trace-failed {e.GetType().Name}: {e.Message}";
+            }
+            if (detectError != null) state += $" | DETECT ERROR: {detectError}";
+            if (state == _lastTrace) return;
+            _lastTrace = state;
+            Main.Log($"[presence] {state}");
         }
 
         private static LevelPresence Detect()

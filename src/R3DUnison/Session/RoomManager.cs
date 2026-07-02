@@ -56,7 +56,14 @@ namespace R3DUnison.Session
 
         private void Tick()
         {
-            if (SteamReady) return;
+            if (SteamReady)
+            {
+                // The game only pumps Steam callbacks in scnEditor/scnCLS/analytics —
+                // never in the base-game flow — so we pump every frame ourselves.
+                // Double-pumping where the game does too is harmless (queue drains once).
+                SteamIntegration.instance?.CheckCallbacks();
+                return;
+            }
             if (!SteamIntegration.initialized) return;
             SteamReady = true;
             Lobby = new SteamLobby();
