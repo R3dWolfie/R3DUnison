@@ -165,6 +165,7 @@ namespace R3DUnison.Session
         private void OnLeft()
         {
             SyncedStart.ResetAll();
+            LevelTransfer.PeerReset();
             _transport?.Dispose();
             _transport = null;
             Members.Clear();
@@ -177,6 +178,12 @@ namespace R3DUnison.Session
         internal void SendAll(MessageType type, object payload)
         {
             _transport?.Broadcast(Codec.Encode(type, payload), SendMode.Reliable);
+        }
+
+        /// <summary>Reliable message to one specific member.</summary>
+        internal void SendToPeer(ulong peerId, MessageType type, object payload)
+        {
+            _transport?.Send(peerId, Codec.Encode(type, payload), SendMode.Reliable);
         }
 
         private float _statsSentAt;
@@ -355,6 +362,21 @@ namespace R3DUnison.Session
                     }
                     break;
                 }
+                case MessageType.LevelRequest:
+                    LevelTransfer.OnLevelRequest(from, Codec.Payload<LevelRequestMsg>(envelope));
+                    break;
+                case MessageType.LevelOffer:
+                    LevelTransfer.OnLevelOffer(from, Codec.Payload<LevelOfferMsg>(envelope));
+                    break;
+                case MessageType.LevelChunk:
+                    LevelTransfer.OnChunk(from, Codec.Payload<LevelChunkMsg>(envelope));
+                    break;
+                case MessageType.ChunkAck:
+                    LevelTransfer.OnChunkAck(from, Codec.Payload<ChunkAckMsg>(envelope));
+                    break;
+                case MessageType.LevelDecline:
+                    LevelTransfer.OnLevelDecline(from, Codec.Payload<LevelDeclineMsg>(envelope));
+                    break;
                 case MessageType.ForceRestart:
                 {
                     var restart = Codec.Payload<ForceRestartMsg>(envelope);

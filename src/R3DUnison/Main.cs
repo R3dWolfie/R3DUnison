@@ -41,6 +41,7 @@ namespace R3DUnison
                 _windowGo.AddComponent<UI.MultiplayerWindow>();
                 _windowGo.AddComponent<UI.RosterOverlay>();
                 _windowGo.AddComponent<UI.GhostOverlay>();
+                _windowGo.AddComponent<UI.TransferPrompt>();
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 Log("Enabled.");
             }

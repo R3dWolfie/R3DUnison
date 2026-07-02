@@ -44,6 +44,26 @@ namespace R3DUnison.Session
         /// <summary>Make the next StartMusic of this level re-run the full sync dance (death-sync restarts).</summary>
         public static void ForceResync() => _lastSyncedKey = null;
 
+        /// <summary>Host's custom-level folder for the current sync (null for official levels).</summary>
+        internal static string HostLevelDir { get; private set; }
+
+        internal static bool IsHostingKey(string key) => _isInitiator && _phase == Phase.HostCollecting && key == _key;
+
+        /// <summary>A level download is progressing — don't time the room start out under it.</summary>
+        internal static void NotifyTransferActivity()
+        {
+            if (_phase == Phase.HostCollecting)
+            {
+                _deadline = Mathf.Max(_deadline, Time.realtimeSinceStartup + 30f);
+            }
+        }
+
+        /// <summary>Peer refused the level download — stop waiting for them.</summary>
+        internal static void PeerDeclined(ulong peer)
+        {
+            if (_isInitiator) _peersReady.Add(peer); // counts as resolved, they just sit out
+        }
+
         /// <summary>Harmony prefix decision point. Returns true to let StartMusic run.</summary>
         public static bool OnStartMusic(scrConductor conductor, Action onComplete, Action onSongScheduled)
         {
@@ -69,6 +89,7 @@ namespace R3DUnison.Session
             {
                 Defer(conductor, onComplete, onSongScheduled);
                 _phase = Phase.ClientArmed;
+                _deadline = Time.realtimeSinceStartup + 45f;
                 StatusLine = "SYNCED START · waiting for host…";
                 rm.SendAll(MessageType.Ready, new LevelReadyMsg { Key = _key });
                 Main.Log($"[sync] armed at gate for {_key}");
@@ -78,6 +99,7 @@ namespace R3DUnison.Session
             if (!rm.Lobby.IsOwner) return true; // non-host solo play runs free (v1)
 
             string folder = null, file = null;
+            HostLevelDir = null;
             if (presence.IsCustom)
             {
                 try
@@ -85,6 +107,7 @@ namespace R3DUnison.Session
                     string levelPath = ADOBase.levelPath;
                     folder = Path.GetFileName(Path.GetDirectoryName(levelPath));
                     file = Path.GetFileName(levelPath);
+                    HostLevelDir = Path.GetDirectoryName(levelPath);
                 }
                 catch
                 {
@@ -129,8 +152,10 @@ namespace R3DUnison.Session
                 {
                     var others = rm.Members.Where(m => !m.IsSelf).Select(m => m.Id).ToList();
                     int ready = others.Count(_peersReady.Contains);
-                    StatusLine = $"SYNCED START · {ready}/{others.Count} players ready";
-                    if ((others.Count > 0 && ready == others.Count) || Time.realtimeSinceStartup > _deadline)
+                    StatusLine = $"SYNCED START · {ready}/{others.Count} players ready{LevelTransfer.HostStatusSuffix}";
+                    bool everyoneReady = others.Count > 0 && ready == others.Count;
+                    bool timedOut = Time.realtimeSinceStartup > _deadline && !LevelTransfer.HostBusy;
+                    if (everyoneReady || timedOut)
                     {
                         rm.SendAll(MessageType.CountdownStart, new CountdownMsg { DelayMs = 3000 });
                         _fireAt = Time.realtimeSinceStartup + 3f;
@@ -141,6 +166,10 @@ namespace R3DUnison.Session
                 }
                 case Phase.ClientLoading:
                     if (Time.realtimeSinceStartup > _deadline) Reset("level load timed out");
+                    break;
+                case Phase.ClientArmed:
+                    // Host never said GO (started without us / vanished): don't sit gated forever
+                    if (Time.realtimeSinceStartup > _deadline) Fire();
                     break;
                 case Phase.Countdown:
                 {
@@ -207,8 +236,9 @@ namespace R3DUnison.Session
                 customPath = Game.CustomLevels.Resolve(msg.Folder, msg.File);
                 if (customPath == null)
                 {
-                    StatusLine = $"You don't have '{msg.Display}' — install it (TUF/Workshop) to join.";
-                    Main.Log($"[sync] custom level '{msg.Folder}' not found locally");
+                    // Ask the host to send us the level; the prompt takes it from here.
+                    Main.Log($"[sync] custom level '{msg.Folder}' not found locally — requesting from host");
+                    LevelTransfer.BeginPeerFlow(from, msg);
                     return;
                 }
             }
@@ -275,6 +305,7 @@ namespace R3DUnison.Session
         public static void OnAbort(ulong from)
         {
             if (_isInitiator) return;
+            LevelTransfer.PeerReset(); // pending download prompt is moot now
             if (_conductor != null) Fire(); // release the gate so nobody sits in silence
             else Reset("host aborted the synced start");
         }
@@ -308,7 +339,9 @@ namespace R3DUnison.Session
             _onComplete = null;
             _onSongScheduled = null;
             _peersReady.Clear();
+            HostLevelDir = null;
             StatusLine = null;
+            LevelTransfer.HostReset();
             if (reason != null) Main.Log($"[sync] reset: {reason}");
         }
     }

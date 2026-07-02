@@ -25,6 +25,44 @@ namespace R3DUnison.Protocol
         SyncAbort,
         LiveStats,
         ForceRestart,
+        LevelRequest,
+        LevelOffer,
+        LevelChunk,
+        ChunkAck,
+        LevelDecline,
+    }
+
+    // --- P2P level transfer (host streams its level folder to peers who lack it) ---
+
+    public class LevelRequestMsg
+    {
+        [JsonProperty("k")] public string Key;
+    }
+
+    public class LevelOfferMsg
+    {
+        [JsonProperty("k")] public string Key;
+        [JsonProperty("sz")] public long Size;
+        [JsonProperty("c")] public int Chunks;
+    }
+
+    public class LevelChunkMsg
+    {
+        [JsonProperty("k")] public string Key;
+        [JsonProperty("i")] public int Index;
+        [JsonProperty("d")] public string Data; // base64
+    }
+
+    public class ChunkAckMsg
+    {
+        [JsonProperty("k")] public string Key;
+        /// <summary>-1 = accept offer / start sending; otherwise highest received chunk.</summary>
+        [JsonProperty("i")] public int Index;
+    }
+
+    public class LevelDeclineMsg
+    {
+        [JsonProperty("k")] public string Key;
     }
 
     /// <summary>Periodic (unreliable) in-run snapshot for the roster overlay + ghost markers.</summary>
