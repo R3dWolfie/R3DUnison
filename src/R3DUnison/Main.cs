@@ -8,6 +8,7 @@ namespace R3DUnison
     {
         public static UnityModManager.ModEntry Mod { get; private set; }
         public static bool Enabled { get; private set; }
+        public static UnisonSettings Settings { get; private set; }
 
         private static Harmony _harmony;
 
@@ -15,8 +16,10 @@ namespace R3DUnison
         public static bool Load(UnityModManager.ModEntry modEntry)
         {
             Mod = modEntry;
+            Settings = UnityModManager.ModSettings.Load<UnisonSettings>(modEntry);
             modEntry.OnToggle = OnToggle;
             modEntry.OnGUI = OnGui;
+            modEntry.OnSaveGUI = entry => Settings.Save(entry);
             return true;
         }
 
@@ -30,6 +33,7 @@ namespace R3DUnison
                 _harmony = new Harmony(modEntry.Info.Id);
                 _harmony.PatchAll(typeof(Main).Assembly);
                 Core.MainThreadDispatcher.Ensure();
+                Game.LevelTracker.Start();
                 Session.RoomManager.Init();
                 _windowGo = new UnityEngine.GameObject("R3DUnison.MultiplayerWindow");
                 UnityEngine.Object.DontDestroyOnLoad(_windowGo);
@@ -46,6 +50,7 @@ namespace R3DUnison
                     _windowGo = null;
                 }
                 Session.RoomManager.Shutdown();
+                Game.LevelTracker.Stop();
                 _harmony?.UnpatchAll(modEntry.Info.Id);
                 _harmony = null;
                 Log("Disabled.");
@@ -57,7 +62,8 @@ namespace R3DUnison
         {
             var rm = Session.RoomManager.Instance;
             string state = rm == null ? "off" : !rm.SteamReady ? "waiting for Steam" : rm.InRoom ? $"in room ({rm.Members.Count} players)" : "idle";
-            UnityEngine.GUILayout.Label($"R3D Unison {modEntry.Info.Version} — press F9 in-game for the multiplayer window. State: {state}");
+            string presence = Game.LevelTracker.Current?.Display ?? "none";
+            UnityEngine.GUILayout.Label($"R3D Unison {modEntry.Info.Version} — press F9 in-game for the multiplayer window. State: {state} | level: {presence}");
         }
 
         // M0 smoke signal: proves we're alive inside the engine across scene changes

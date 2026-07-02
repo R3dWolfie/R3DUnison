@@ -33,6 +33,8 @@ namespace R3DUnison.Session
         public string Status { get; private set; } = "";
 
         private SteamP2PTransport _transport;
+        /// <summary>True while the current room was auto-created from level presence.</summary>
+        public bool IsAutoRoom { get; private set; }
 
         public static void Init()
         {
@@ -48,6 +50,8 @@ namespace R3DUnison.Session
         private RoomManager()
         {
             Core.MainThreadDispatcher.OnFrame += Tick;
+            Game.LevelTracker.Entered += OnLevelEntered;
+            Game.LevelTracker.Exited += OnLevelExited;
         }
 
         private void Tick()
@@ -88,12 +92,47 @@ namespace R3DUnison.Session
 
         public void InviteFriends() => Lobby.InviteOverlay();
 
+        private void OnLevelEntered(Game.LevelPresence level)
+        {
+            if (!SteamReady) return;
+            if (InRoom)
+            {
+                // Host playing something new: update what the room advertises
+                Lobby.SetLevelInfo(level.Key, level.Display);
+            }
+            else if (Main.Settings.AutoAnnounce)
+            {
+                IsAutoRoom = true;
+                _announcedLevel = level;
+                Lobby.CreateRoom($"{SteamFriends.GetPersonaName()} · {level.Display}", auto: true);
+            }
+        }
+
+        private Game.LevelPresence _announcedLevel;
+
+        private void OnLevelExited()
+        {
+            if (!SteamReady || !InRoom) return;
+            Lobby.SetLevelInfo(null, null);
+            // An auto-room with nobody else in it dissolves when you stop playing;
+            // if people joined, it stays alive as a normal room.
+            if (IsAutoRoom && Members.Count <= 1)
+            {
+                LeaveRoom();
+            }
+        }
+
         private void OnEntered()
         {
             _transport?.Dispose();
             _transport = new SteamP2PTransport();
             _transport.MessageReceived += OnMessage;
             _transport.PeerConnected += _ => SendHello();
+            if (_announcedLevel != null)
+            {
+                Lobby.SetLevelInfo(_announcedLevel.Key, _announcedLevel.Display);
+                _announcedLevel = null;
+            }
             Status = $"In room '{Lobby.RoomName}'";
             RefreshMembers();
         }
@@ -103,6 +142,8 @@ namespace R3DUnison.Session
             _transport?.Dispose();
             _transport = null;
             Members.Clear();
+            IsAutoRoom = false;
+            _announcedLevel = null;
             Status = "Left the room.";
         }
 
@@ -169,6 +210,8 @@ namespace R3DUnison.Session
         public void Dispose()
         {
             Core.MainThreadDispatcher.OnFrame -= Tick;
+            Game.LevelTracker.Entered -= OnLevelEntered;
+            Game.LevelTracker.Exited -= OnLevelExited;
             _transport?.Dispose();
             _transport = null;
             Lobby?.Dispose();

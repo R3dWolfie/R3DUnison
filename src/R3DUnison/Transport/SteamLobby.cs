@@ -10,6 +10,9 @@ namespace R3DUnison.Transport
         public string Name;
         public int Players;
         public int Capacity;
+        /// <summary>Display name of the level the host is currently playing ("" = in menu).</summary>
+        public string Level;
+        public bool IsAuto;
     }
 
     /// <summary>
@@ -23,6 +26,9 @@ namespace R3DUnison.Transport
         private const string KeyMarker = "r3du";
         private const string KeyName = "name";
         private const string KeyProtocol = "proto";
+        private const string KeyLevel = "level";
+        private const string KeyLevelId = "lvlkey";
+        private const string KeyAuto = "auto";
 
         private readonly CallResult<LobbyCreated_t> _created;
         private readonly CallResult<LobbyEnter_t> _joined;
@@ -51,14 +57,16 @@ namespace R3DUnison.Transport
             _joinRequested = Callback<GameLobbyJoinRequested_t>.Create(OnJoinRequested);
         }
 
-        public void CreateRoom(string name)
+        public void CreateRoom(string name, bool auto = false)
         {
             if (InRoom) Leave();
             _pendingRoomName = string.IsNullOrWhiteSpace(name) ? $"{SteamFriends.GetPersonaName()}'s room" : name.Trim();
+            _pendingAuto = auto;
             _created.Set(SteamMatchmaking.CreateLobby(ELobbyType.k_ELobbyTypePublic, MaxPlayers));
         }
 
         private string _pendingRoomName;
+        private bool _pendingAuto;
 
         private void OnCreated(LobbyCreated_t result, bool ioFailure)
         {
@@ -71,8 +79,19 @@ namespace R3DUnison.Transport
             SteamMatchmaking.SetLobbyData(CurrentLobby, KeyMarker, "1");
             SteamMatchmaking.SetLobbyData(CurrentLobby, KeyName, _pendingRoomName);
             SteamMatchmaking.SetLobbyData(CurrentLobby, KeyProtocol, Protocol.ProtocolInfo.Version.ToString());
+            if (_pendingAuto) SteamMatchmaking.SetLobbyData(CurrentLobby, KeyAuto, "1");
             Entered?.Invoke();
         }
+
+        /// <summary>Owner only: advertise the level currently being played (null = back in menu).</summary>
+        public void SetLevelInfo(string levelKey, string levelDisplay)
+        {
+            if (!InRoom || !IsOwner) return;
+            SteamMatchmaking.SetLobbyData(CurrentLobby, KeyLevelId, levelKey ?? "");
+            SteamMatchmaking.SetLobbyData(CurrentLobby, KeyLevel, levelDisplay ?? "");
+        }
+
+        public string CurrentLevelDisplay => InRoom ? SteamMatchmaking.GetLobbyData(CurrentLobby, KeyLevel) : "";
 
         public void RefreshRooms()
         {
@@ -95,6 +114,8 @@ namespace R3DUnison.Transport
                         Name = SteamMatchmaking.GetLobbyData(lobby, KeyName),
                         Players = SteamMatchmaking.GetNumLobbyMembers(lobby),
                         Capacity = SteamMatchmaking.GetLobbyMemberLimit(lobby),
+                        Level = SteamMatchmaking.GetLobbyData(lobby, KeyLevel),
+                        IsAuto = SteamMatchmaking.GetLobbyData(lobby, KeyAuto) == "1",
                     });
                 }
             }

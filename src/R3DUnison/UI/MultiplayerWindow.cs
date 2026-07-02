@@ -16,7 +16,7 @@ namespace R3DUnison.UI
         private Rect _rect = new Rect(80, 80, 560, 640);
         private string _roomName = "";
         private Vector2 _scroll;
-        private GUIStyle _title, _label, _button, _textField;
+        private GUIStyle _title, _label, _button, _textField, _toggle;
 
         private void Update()
         {
@@ -41,6 +41,7 @@ namespace R3DUnison.UI
             _label = new GUIStyle(GUI.skin.label) { fontSize = 18 };
             _button = new GUIStyle(GUI.skin.button) { fontSize = 18 };
             _textField = new GUIStyle(GUI.skin.textField) { fontSize = 18 };
+            _toggle = new GUIStyle(GUI.skin.toggle) { fontSize = 18 };
         }
 
         private void DrawWindow(int id)
@@ -69,6 +70,14 @@ namespace R3DUnison.UI
 
         private void DrawBrowser(RoomManager rm)
         {
+            bool announce = GUILayout.Toggle(Main.Settings.AutoAnnounce, " Announce levels I play as public rooms", _toggle);
+            if (announce != Main.Settings.AutoAnnounce)
+            {
+                Main.Settings.AutoAnnounce = announce;
+                Main.Settings.Save(Main.Mod);
+            }
+            GUILayout.Space(8);
+
             GUILayout.Label("Create a room", _title);
             GUILayout.BeginHorizontal();
             _roomName = GUILayout.TextField(_roomName, 40, _textField, GUILayout.MinWidth(280));
@@ -92,7 +101,8 @@ namespace R3DUnison.UI
             foreach (var room in rm.AvailableRooms)
             {
                 GUILayout.BeginHorizontal();
-                GUILayout.Label($"{room.Name}  ({room.Players}/{room.Capacity})", _label);
+                string playing = string.IsNullOrEmpty(room.Level) ? "" : $"  ·  playing {room.Level}";
+                GUILayout.Label($"{room.Name}  ({room.Players}/{room.Capacity}){playing}", _label);
                 GUILayout.FlexibleSpace();
                 if (GUILayout.Button("Join", _button, GUILayout.Width(100)))
                 {
@@ -106,6 +116,11 @@ namespace R3DUnison.UI
         private void DrawRoom(RoomManager rm)
         {
             GUILayout.Label($"Room: {rm.Lobby.RoomName}", _title);
+            string level = rm.Lobby.CurrentLevelDisplay;
+            if (!string.IsNullOrEmpty(level))
+            {
+                GUILayout.Label($"Level: {level}", _label);
+            }
             GUILayout.Space(8);
             foreach (var member in rm.Members)
             {

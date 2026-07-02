@@ -22,6 +22,10 @@
       <HintPath>$(AdofaiManaged)/Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="RDTools">
+      <HintPath>$(AdofaiManaged)/RDTools.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityModManager">
       <HintPath>$(AdofaiManaged)/UnityModManager/UnityModManager.dll</HintPath>
       <Private>false</Private>
