@@ -302,7 +302,12 @@ namespace R3DUnison.Session
             // EVERYONE in the synced level is down does the host restart the room together.
             if (Lobby.DeathSyncEnabled && Lobby.IsOwner && level.Key == SyncedStart.LastSyncedKey && now - _forceRestartAt > 3f)
             {
-                var participants = Members.Where(m => m.IsSelf || (m.HasFreshStats && m.StatsKey == level.Key)).ToList();
+                // Finishers are done, not "alive" — without excluding them, one player
+                // completing the level would block the wipe restart forever.
+                var participants = Members
+                    .Where(m => m.IsSelf || (m.HasFreshStats && m.StatsKey == level.Key))
+                    .Where(m => Scoreboard.GetEntry(m.Id)?.Won != true)
+                    .ToList();
                 if (participants.Count >= 2 && participants.All(m => m.Dead))
                 {
                     _forceRestartAt = now;

@@ -77,6 +77,10 @@ namespace R3DUnison.UI
                 {
                     GUILayout.Label($"✕ {member.Progress:P0}", UnisonTheme.DeadText);
                 }
+                else if (member.HasFreshStats && member.StatsKey != null && member.StatsKey.StartsWith("menu:"))
+                {
+                    GUILayout.Label("menu", UnisonTheme.Dim);
+                }
                 else if (member.HasFreshStats)
                 {
                     GUILayout.Label($"{member.Progress:P0} · {member.Accuracy:P1}", UnisonTheme.LevelText);

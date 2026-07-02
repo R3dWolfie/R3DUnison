@@ -269,7 +269,18 @@ namespace R3DUnison.Session
             _phase = Phase.HostCollecting;
             _key = presence.Key;
             _display = presence.Display;
-            SetRoundSpeed(_key, rm.Lobby.SpeedMultiplier);
+            // Editor-hosted rounds run at ×1 for everyone — the editor playtest ignores
+            // the room speed (it has its own playback-speed system), so applying it to
+            // the pulled-in players would desync them from the host.
+            bool editorRound = false;
+            try
+            {
+                editorRound = ADOBase.isLevelEditor;
+            }
+            catch
+            {
+            }
+            SetRoundSpeed(_key, editorRound ? 1f : rm.Lobby.SpeedMultiplier);
             Defer(conductor, onComplete, onSongScheduled);
             _peersReady.Clear();
             _deadline = Time.realtimeSinceStartup + 20f;
