@@ -42,6 +42,7 @@ namespace R3DUnison
                 _windowGo.AddComponent<UI.RosterOverlay>();
                 _windowGo.AddComponent<UI.GhostOverlay>();
                 _windowGo.AddComponent<UI.TransferPrompt>();
+                _windowGo.AddComponent<UI.SpectatorCam>();
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 Log("Enabled.");
             }

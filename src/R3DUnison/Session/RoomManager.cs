@@ -25,6 +25,10 @@ namespace R3DUnison.Session
         public double SongPos;
         public string StatsKey;
 
+        public bool HasColors;
+        public UnityEngine.Color Color1;
+        public UnityEngine.Color Color2;
+
         public bool HasFreshStats => UnityEngine.Time.realtimeSinceStartup - StatsAt < 3f;
     }
 
@@ -194,7 +198,6 @@ namespace R3DUnison.Session
         }
 
         private float _statsSentAt;
-        private bool _localDead;
         private bool _localWon;
         private float _forceRestartAt = -1000f;
 
@@ -226,7 +229,6 @@ namespace R3DUnison.Session
             var level = Game.LevelTracker.Current;
             if (level == null)
             {
-                _localDead = false;
                 _localWon = false;
                 return;
             }
@@ -286,15 +288,19 @@ namespace R3DUnison.Session
                 }),
                 SendMode.Unreliable);
 
-            // Death-sync rule: our death in the room's synced level restarts everyone.
-            if (dead && !_localDead && Lobby.DeathSyncEnabled && level.Key == SyncedStart.LastSyncedKey && now - _forceRestartAt > 3f)
+            // Death-sync (wipe rule): dead players spectate the survivors; only when
+            // EVERYONE in the synced level is down does the host restart the room together.
+            if (Lobby.DeathSyncEnabled && Lobby.IsOwner && level.Key == SyncedStart.LastSyncedKey && now - _forceRestartAt > 3f)
             {
-                _forceRestartAt = now;
-                SendAll(MessageType.ForceRestart, new ForceRestartMsg { Key = level.Key });
-                Main.Log("[deathsync] we died — restarting the room");
-                DoForceRestart(level.Key);
+                var participants = Members.Where(m => m.IsSelf || (m.HasFreshStats && m.StatsKey == level.Key)).ToList();
+                if (participants.Count >= 2 && participants.All(m => m.Dead))
+                {
+                    _forceRestartAt = now;
+                    SendAll(MessageType.ForceRestart, new ForceRestartMsg { Key = level.Key });
+                    Main.Log("[deathsync] full wipe — restarting the room");
+                    DoForceRestart(level.Key);
+                }
             }
-            _localDead = dead;
         }
 
         private bool _speedAsserted;
@@ -384,8 +390,18 @@ namespace R3DUnison.Session
 
         private void SendHello()
         {
+            string color1 = "", color2 = "";
+            try
+            {
+                color1 = UnityEngine.ColorUtility.ToHtmlStringRGB(Persistence.GetPlayerColor(red: true).ToRealColor());
+                color2 = UnityEngine.ColorUtility.ToHtmlStringRGB(Persistence.GetPlayerColor(red: false).ToRealColor());
+            }
+            catch
+            {
+                // color prefs unavailable — ghosts fall back to the palette
+            }
             _transport?.Broadcast(
-                Codec.Encode(MessageType.Hello, new Hello { Name = SteamFriends.GetPersonaName() }),
+                Codec.Encode(MessageType.Hello, new Hello { Name = SteamFriends.GetPersonaName(), Color1 = color1, Color2 = color2 }),
                 SendMode.Reliable);
         }
 
@@ -401,13 +417,25 @@ namespace R3DUnison.Session
             switch (envelope.Type)
             {
                 case MessageType.Hello:
+                {
                     var member = Members.FirstOrDefault(m => m.Id == from);
-                    if (member != null && !member.P2PConnected)
+                    if (member == null) break;
+                    var hello = Codec.Payload<Hello>(envelope);
+                    if (hello != null
+                        && UnityEngine.ColorUtility.TryParseHtmlString("#" + hello.Color1, out var planet1)
+                        && UnityEngine.ColorUtility.TryParseHtmlString("#" + hello.Color2, out var planet2))
+                    {
+                        member.Color1 = planet1;
+                        member.Color2 = planet2;
+                        member.HasColors = true;
+                    }
+                    if (!member.P2PConnected)
                     {
                         member.P2PConnected = true;
                         SendHello(); // answer once so the other side marks us too
                     }
                     break;
+                }
                 case MessageType.StartLevel:
                     SyncedStart.OnStartLevel(from, Codec.Payload<StartLevelMsg>(envelope));
                     break;

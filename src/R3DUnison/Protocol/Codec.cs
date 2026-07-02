@@ -36,5 +36,8 @@ namespace R3DUnison.Protocol
     public class Hello
     {
         [JsonProperty("n")] public string Name;
+        /// <summary>Planet colors (RGB hex, no #) so ghosts render in the player's real colors.</summary>
+        [JsonProperty("c1")] public string Color1;
+        [JsonProperty("c2")] public string Color2;
     }
 }
