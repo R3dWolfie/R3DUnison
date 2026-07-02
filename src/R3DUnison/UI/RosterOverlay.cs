@@ -1,3 +1,4 @@
+using System.Linq;
 using R3DUnison.Session;
 using UnityEngine;
 
@@ -23,8 +24,13 @@ namespace R3DUnison.UI
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
             UnisonTheme.Ensure();
 
-            float height = 44 + rm.Members.Count * 30 + (SyncedStart.StatusLine != null ? 32 : 0);
-            GUILayout.BeginArea(new Rect(16, 240, 300, height), UnisonTheme.Overlay);
+            var toasts = rm.Toasts.Where(t => Time.realtimeSinceStartup - t.At < 5f).ToList();
+            bool showResults = Scoreboard.LastRound != null && Time.realtimeSinceStartup - Scoreboard.LastRoundAt < 12f;
+            float height = 44 + rm.Members.Count * 30
+                + (SyncedStart.StatusLine != null ? 32 : 0)
+                + toasts.Count * 26
+                + (showResults ? 36 + Scoreboard.LastRound.Count * 26 : 0);
+            GUILayout.BeginArea(new Rect(16, 240, 320, height), UnisonTheme.Overlay);
             GUILayout.Label("R3D UNISON", UnisonTheme.OverlayHead);
             GUILayout.Space(4);
             if (SyncedStart.StatusLine != null)
@@ -36,11 +42,17 @@ namespace R3DUnison.UI
             {
                 GUILayout.BeginHorizontal();
                 bool connected = member.IsSelf || member.P2PConnected;
-                var dot = member.Dead ? UnisonTheme.DotDead : connected ? UnisonTheme.DotOn : UnisonTheme.DotOff;
+                var entry = Scoreboard.GetEntry(member.Id);
+                bool outOfRound = entry != null && entry.Eliminated;
+                var dot = member.Dead || outOfRound ? UnisonTheme.DotDead : connected ? UnisonTheme.DotOn : UnisonTheme.DotOff;
                 GUILayout.Label("●", dot);
                 GUILayout.Label(member.Name, UnisonTheme.Label);
                 GUILayout.FlexibleSpace();
-                if (member.Dead)
+                if (outOfRound)
+                {
+                    GUILayout.Label($"OUT · {entry.Progress:P0}", UnisonTheme.DeadText);
+                }
+                else if (member.Dead)
                 {
                     GUILayout.Label($"✕ {member.Progress:P0}", UnisonTheme.DeadText);
                 }
@@ -49,6 +61,21 @@ namespace R3DUnison.UI
                     GUILayout.Label($"{member.Progress:P0} · {member.Accuracy:P1}", UnisonTheme.LevelText);
                 }
                 GUILayout.EndHorizontal();
+            }
+            if (showResults)
+            {
+                GUILayout.Space(6);
+                GUILayout.Label($"ROUND — {Scoreboard.LastRoundWinner} wins!", UnisonTheme.OverlayHead);
+                int place = 1;
+                foreach (var entry in Scoreboard.LastRound)
+                {
+                    string detail = entry.Won ? $"{entry.Acc:P1}" : $"{entry.Progress:P0}";
+                    GUILayout.Label($"{place++}. {entry.Name} — {detail}", UnisonTheme.Label);
+                }
+            }
+            foreach (var toast in toasts)
+            {
+                GUILayout.Label($"{toast.Name}: {toast.Text}", UnisonTheme.Dim);
             }
             GUILayout.EndArea();
 

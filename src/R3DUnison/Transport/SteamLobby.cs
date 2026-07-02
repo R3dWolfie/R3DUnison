@@ -4,6 +4,13 @@ using Steamworks;
 
 namespace R3DUnison.Transport
 {
+    public enum RoomMode
+    {
+        Free = 0,
+        DeathSync = 1,
+        Elimination = 2,
+    }
+
     public class RoomInfo
     {
         public CSteamID LobbyId;
@@ -29,7 +36,8 @@ namespace R3DUnison.Transport
         private const string KeyLevel = "level";
         private const string KeyLevelId = "lvlkey";
         private const string KeyAuto = "auto";
-        private const string KeyDeathSync = "dsync";
+        private const string KeyMode = "mode";
+        private const string KeySpeed = "speed";
 
         private readonly CallResult<LobbyCreated_t> _created;
         private readonly CallResult<LobbyEnter_t> _joined;
@@ -94,12 +102,37 @@ namespace R3DUnison.Transport
 
         public string CurrentLevelDisplay => InRoom ? SteamMatchmaking.GetLobbyData(CurrentLobby, KeyLevel) : "";
 
-        /// <summary>Room rule (owner-set): anyone dying restarts the level for everyone.</summary>
-        public bool DeathSyncEnabled => InRoom && SteamMatchmaking.GetLobbyData(CurrentLobby, KeyDeathSync) == "1";
+        /// <summary>Owner-set room mode: Free, DeathSync (anyone dies → all restart), Elimination (die once → out).</summary>
+        public RoomMode Mode => InRoom && int.TryParse(SteamMatchmaking.GetLobbyData(CurrentLobby, KeyMode), out var mode)
+            ? (RoomMode)mode
+            : RoomMode.Free;
 
-        public void SetDeathSync(bool enabled)
+        public void SetMode(RoomMode mode)
         {
-            if (InRoom && IsOwner) SteamMatchmaking.SetLobbyData(CurrentLobby, KeyDeathSync, enabled ? "1" : "0");
+            if (InRoom && IsOwner) SteamMatchmaking.SetLobbyData(CurrentLobby, KeyMode, ((int)mode).ToString());
+        }
+
+        public bool DeathSyncEnabled => Mode == RoomMode.DeathSync;
+
+        /// <summary>Owner-set chart speed multiplier for synced runs (1.0 = off).</summary>
+        public float SpeedMultiplier
+        {
+            get
+            {
+                if (!InRoom) return 1f;
+                string raw = SteamMatchmaking.GetLobbyData(CurrentLobby, KeySpeed);
+                return float.TryParse(raw, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var speed) && speed > 0.05f ? speed : 1f;
+            }
+        }
+
+        public void SetSpeed(float speed)
+        {
+            if (InRoom && IsOwner)
+            {
+                SteamMatchmaking.SetLobbyData(CurrentLobby, KeySpeed,
+                    speed.ToString("0.0##", System.Globalization.CultureInfo.InvariantCulture));
+            }
         }
 
         public void RefreshRooms()

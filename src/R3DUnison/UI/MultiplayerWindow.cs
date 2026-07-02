@@ -210,20 +210,9 @@ namespace R3DUnison.UI
                 Main.Settings.SyncedStarts = sync;
                 Main.Settings.Save(Main.Mod);
             }
-            if (rm.Lobby.IsOwner)
-            {
-                bool deaths = UnisonTheme.Toggle(rm.Lobby.DeathSyncEnabled, "Sync deaths — anyone dies, everyone restarts together");
-                if (deaths != rm.Lobby.DeathSyncEnabled)
-                {
-                    rm.Lobby.SetDeathSync(deaths);
-                    Main.Settings.SyncDeaths = deaths;
-                    Main.Settings.Save(Main.Mod);
-                }
-            }
-            else if (rm.Lobby.DeathSyncEnabled)
-            {
-                GUILayout.Label("Room rule: deaths restart everyone", UnisonTheme.Dim);
-            }
+            DrawRoomRules(rm);
+            DrawSession(rm);
+            DrawChatBar(rm);
 
             GUILayout.Space(14);
             GUILayout.BeginHorizontal();
@@ -235,6 +224,94 @@ namespace R3DUnison.UI
             if (GUILayout.Button("LEAVE ROOM", UnisonTheme.Button, GUILayout.Width(140)))
             {
                 rm.LeaveRoom();
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        private static readonly (Transport.RoomMode mode, string label)[] Modes =
+        {
+            (Transport.RoomMode.Free, "FREE"),
+            (Transport.RoomMode.DeathSync, "DEATH-SYNC"),
+            (Transport.RoomMode.Elimination, "ELIMINATION"),
+        };
+
+        private void DrawRoomRules(RoomManager rm)
+        {
+            var lobby = rm.Lobby;
+            GUILayout.Space(10);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("MODE", UnisonTheme.Header, GUILayout.Width(74));
+            if (lobby.IsOwner)
+            {
+                foreach (var (mode, label) in Modes)
+                {
+                    bool active = lobby.Mode == mode;
+                    if (GUILayout.Button(label, active ? UnisonTheme.ButtonPrimary : UnisonTheme.Button) && !active)
+                    {
+                        lobby.SetMode(mode);
+                        Main.Settings.RoomModePref = (int)mode;
+                        Main.Settings.Save(Main.Mod);
+                    }
+                    GUILayout.Space(6);
+                }
+            }
+            else
+            {
+                GUILayout.Label(Modes.First(m => m.mode == lobby.Mode).label, UnisonTheme.LevelText);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(6);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("SPEED", UnisonTheme.Header, GUILayout.Width(74));
+            if (lobby.IsOwner)
+            {
+                if (GUILayout.Button("−", UnisonTheme.Button, GUILayout.Width(44))) NudgeSpeed(lobby, -0.1f);
+                GUILayout.Label($"×{lobby.SpeedMultiplier:0.0#}", UnisonTheme.Name, GUILayout.Width(70));
+                if (GUILayout.Button("+", UnisonTheme.Button, GUILayout.Width(44))) NudgeSpeed(lobby, +0.1f);
+                GUILayout.Space(8);
+                GUILayout.Label("applies on synced starts", UnisonTheme.Dim);
+            }
+            else
+            {
+                GUILayout.Label($"×{lobby.SpeedMultiplier:0.0#}", UnisonTheme.LevelText);
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        private void NudgeSpeed(Transport.SteamLobby lobby, float delta)
+        {
+            float speed = Mathf.Clamp(Mathf.Round((lobby.SpeedMultiplier + delta) * 10f) / 10f, 0.5f, 2f);
+            lobby.SetSpeed(speed);
+            Main.Settings.RoomSpeedPref = speed;
+            Main.Settings.Save(Main.Mod);
+        }
+
+        private void DrawSession(RoomManager rm)
+        {
+            if (Session.Scoreboard.Wins.Count == 0) return;
+            GUILayout.Space(10);
+            GUILayout.Label("SESSION", UnisonTheme.Header);
+            foreach (var pair in Session.Scoreboard.Wins.OrderByDescending(p => p.Value))
+            {
+                string name = rm.Members.FirstOrDefault(m => m.Id == pair.Key)?.Name ?? "left";
+                GUILayout.Label($"{name} — {pair.Value} win{(pair.Value == 1 ? "" : "s")}", UnisonTheme.Label);
+            }
+        }
+
+        private static readonly string[] ChatPresets = { "gg", "rip", "nice!", "one more?", "wait", "go!" };
+
+        private void DrawChatBar(RoomManager rm)
+        {
+            GUILayout.Space(10);
+            GUILayout.BeginHorizontal();
+            foreach (var preset in ChatPresets)
+            {
+                if (GUILayout.Button(preset, UnisonTheme.Button))
+                {
+                    rm.SendChat(preset);
+                }
+                GUILayout.Space(4);
             }
             GUILayout.EndHorizontal();
         }

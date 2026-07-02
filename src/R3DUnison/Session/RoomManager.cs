@@ -75,6 +75,7 @@ namespace R3DUnison.Session
                 SteamIntegration.instance?.CheckCallbacks();
                 SyncedStart.Tick();
                 TickLiveStats();
+                Scoreboard.Tick();
                 return;
             }
             if (!SteamIntegration.initialized) return;
@@ -156,8 +157,10 @@ namespace R3DUnison.Session
             }
             if (Lobby.IsOwner)
             {
-                Lobby.SetDeathSync(Main.Settings.SyncDeaths);
+                Lobby.SetMode((Transport.RoomMode)Main.Settings.RoomModePref);
+                Lobby.SetSpeed(Main.Settings.RoomSpeedPref);
             }
+            Scoreboard.ResetSession();
             Status = $"In room '{Lobby.RoomName}'";
             RefreshMembers();
         }
@@ -166,6 +169,8 @@ namespace R3DUnison.Session
         {
             SyncedStart.ResetAll();
             LevelTransfer.PeerReset();
+            Scoreboard.ResetSession();
+            Toasts.Clear();
             _transport?.Dispose();
             _transport = null;
             Members.Clear();
@@ -188,7 +193,29 @@ namespace R3DUnison.Session
 
         private float _statsSentAt;
         private bool _localDead;
+        private bool _localWon;
         private float _forceRestartAt = -1000f;
+
+        public class ChatToast
+        {
+            public string Name;
+            public string Text;
+            public float At;
+        }
+
+        public readonly List<ChatToast> Toasts = new List<ChatToast>();
+
+        public void SendChat(string text)
+        {
+            SendAll(MessageType.Chat, new ChatMsg { Text = text });
+            AddToast(SteamFriends.GetPersonaName(), text);
+        }
+
+        private void AddToast(string name, string text)
+        {
+            Toasts.Add(new ChatToast { Name = name, Text = text, At = UnityEngine.Time.realtimeSinceStartup });
+            while (Toasts.Count > 5) Toasts.RemoveAt(0);
+        }
 
         // Sample our run 4×/s: stream stats to the room, detect deaths for the death-sync rule.
         private void TickLiveStats()
@@ -198,6 +225,7 @@ namespace R3DUnison.Session
             if (level == null)
             {
                 _localDead = false;
+                _localWon = false;
                 return;
             }
             float now = UnityEngine.Time.realtimeSinceStartup;
@@ -205,7 +233,7 @@ namespace R3DUnison.Session
             _statsSentAt = now;
 
             float progress = 0f, accuracy = 1f;
-            bool dead = false;
+            bool dead = false, won = false;
             int seqId = 0;
             double songPos = 0;
             try
@@ -215,6 +243,7 @@ namespace R3DUnison.Session
                 progress = controller.percentComplete;
                 accuracy = controller.mistakesManager?.percentAcc ?? 1f;
                 dead = controller.currentState == States.Fail || controller.currentState == States.Fail2;
+                won = controller.currentState == States.Won;
                 seqId = controller.currentSeqID;
                 songPos = ADOBase.conductor != null ? ADOBase.conductor.songposition_minusi : 0;
             }
@@ -222,6 +251,14 @@ namespace R3DUnison.Session
             {
                 return; // mid-transition
             }
+
+            if (won && !_localWon)
+            {
+                var result = new RunResultMsg { Key = level.Key, Acc = accuracy };
+                SendAll(MessageType.RunResult, result);
+                Scoreboard.NoteWon(SteamUser.GetSteamID().m_SteamID, SteamFriends.GetPersonaName(), result);
+            }
+            _localWon = won;
 
             var self = Members.FirstOrDefault(m => m.IsSelf);
             if (self != null)
@@ -233,6 +270,7 @@ namespace R3DUnison.Session
                 self.SeqId = seqId;
                 self.SongPos = songPos;
                 self.StatsKey = level.Key;
+                Scoreboard.NoteStats(self, level.Key);
             }
             _transport.Broadcast(
                 Codec.Encode(MessageType.LiveStats, new LiveStatsMsg
@@ -268,6 +306,7 @@ namespace R3DUnison.Session
             }
             try
             {
+                Scoreboard.AbandonRound();
                 SyncedStart.ForceResync();
                 ADOBase.RestartScene();
             }
@@ -359,7 +398,22 @@ namespace R3DUnison.Session
                         sender.SeqId = stats.SeqId;
                         sender.SongPos = stats.SongPos;
                         sender.StatsKey = stats.Key;
+                        Scoreboard.NoteStats(sender, stats.Key);
                     }
+                    break;
+                }
+                case MessageType.RunResult:
+                {
+                    var result = Codec.Payload<RunResultMsg>(envelope);
+                    var who = Members.FirstOrDefault(m => m.Id == from);
+                    if (result != null) Scoreboard.NoteWon(from, who?.Name ?? from.ToString(), result);
+                    break;
+                }
+                case MessageType.Chat:
+                {
+                    var chat = Codec.Payload<ChatMsg>(envelope);
+                    var who = Members.FirstOrDefault(m => m.Id == from);
+                    if (chat?.Text != null && chat.Text.Length <= 64) AddToast(who?.Name ?? "?", chat.Text);
                     break;
                 }
                 case MessageType.LevelRequest:

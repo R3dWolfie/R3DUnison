@@ -30,6 +30,20 @@ namespace R3DUnison.Protocol
         LevelChunk,
         ChunkAck,
         LevelDecline,
+        RunResult,
+        Chat,
+    }
+
+    /// <summary>Terminal result of a run (sent on level completion).</summary>
+    public class RunResultMsg
+    {
+        [JsonProperty("k")] public string Key;
+        [JsonProperty("a")] public float Acc;
+    }
+
+    public class ChatMsg
+    {
+        [JsonProperty("t")] public string Text;
     }
 
     // --- P2P level transfer (host streams its level folder to peers who lack it) ---

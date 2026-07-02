@@ -75,6 +75,7 @@ namespace R3DUnison.Session
             // Quick retry of the level we just synced runs free — only fresh entries sync.
             if (presence.Key == _lastSyncedKey && Time.realtimeSinceStartup - Game.LevelTracker.LastExitRealtime < RetryWindowSeconds)
             {
+                ApplyRoomSpeed(conductor); // handicap persists across retries
                 return true;
             }
 
@@ -191,6 +192,7 @@ namespace R3DUnison.Session
             _lastSyncedKey = key;
             if (conductor != null) // Unity-null: scene may have unloaded underneath us
             {
+                ApplyRoomSpeed(conductor);
                 try
                 {
                     _passthrough = true;
@@ -201,6 +203,35 @@ namespace R3DUnison.Session
                     _passthrough = false;
                 }
                 Main.Log("[sync] StartMusic released");
+            }
+            var rm = RoomManager.Instance;
+            if (key != null && rm != null && rm.InRoom && rm.Members.Count >= 2)
+            {
+                Scoreboard.OnRoundStart(key);
+            }
+        }
+
+        private static int _speedAppliedTo;
+
+        // Multiply the song pitch once per conductor instance (fresh per scene load, so
+        // it naturally covers retries without double-applying on re-deferred calls).
+        private static void ApplyRoomSpeed(scrConductor conductor)
+        {
+            var rm = RoomManager.Instance;
+            if (conductor == null || rm?.Lobby == null || !rm.InRoom) return;
+            float speed = rm.Lobby.SpeedMultiplier;
+            if (Mathf.Abs(speed - 1f) < 0.005f) return;
+            int id = conductor.GetInstanceID();
+            if (_speedAppliedTo == id) return;
+            _speedAppliedTo = id;
+            try
+            {
+                conductor.song.pitch *= speed;
+                Main.Log($"[room] chart speed ×{speed:0.0##} applied");
+            }
+            catch
+            {
+                // song not ready — skip rather than crash the gate
             }
         }
 

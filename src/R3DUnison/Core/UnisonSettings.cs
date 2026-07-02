@@ -10,8 +10,11 @@ namespace R3DUnison
         /// <summary>Host starting a level pulls everyone in and starts them simultaneously.</summary>
         public bool SyncedStarts = true;
 
-        /// <summary>Room rule (as host): anyone dying restarts the level for everyone, re-synced.</summary>
-        public bool SyncDeaths = false;
+        /// <summary>Host preference: room mode applied when creating a room (RoomMode enum value).</summary>
+        public int RoomModePref = 0;
+
+        /// <summary>Host preference: chart speed multiplier applied when creating a room.</summary>
+        public float RoomSpeedPref = 1f;
 
         public override void Save(UnityModManager.ModEntry modEntry) => Save(this, modEntry);
     }
