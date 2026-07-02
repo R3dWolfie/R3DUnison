@@ -214,6 +214,20 @@ namespace R3DUnison.UI
             DrawSession(rm);
             DrawChatBar(rm);
 
+            if (Game.LevelTracker.Current == null && !Session.SyncedStart.Active)
+            {
+                var playing = rm.Members.FirstOrDefault(m =>
+                    !m.IsSelf && m.HasFreshStats && m.StatsKey != null && !m.StatsKey.StartsWith("menu:"));
+                if (playing != null)
+                {
+                    GUILayout.Space(10);
+                    if (GUILayout.Button($"SPECTATE {playing.Name.ToUpperInvariant()}", UnisonTheme.ButtonPrimary))
+                    {
+                        Session.SyncedStart.SpectateInto(playing);
+                    }
+                }
+            }
+
             GUILayout.Space(14);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("INVITE FRIENDS", UnisonTheme.ButtonPrimary, GUILayout.Width(180)))

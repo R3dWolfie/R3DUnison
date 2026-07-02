@@ -28,6 +28,8 @@ namespace R3DUnison.Session
         public bool HasColors;
         public UnityEngine.Color Color1;
         public UnityEngine.Color Color2;
+        public float PosX;
+        public float PosY;
 
         public bool HasFreshStats => UnityEngine.Time.realtimeSinceStartup - StatsAt < 3f;
     }
@@ -228,12 +230,13 @@ namespace R3DUnison.Session
         {
             if (!InRoom || Members.Count < 2 || _transport == null) return;
             var level = Game.LevelTracker.Current;
+            float now = UnityEngine.Time.realtimeSinceStartup;
             if (level == null)
             {
                 _localWon = false;
+                TrySendMenuPresence(now);
                 return;
             }
-            float now = UnityEngine.Time.realtimeSinceStartup;
             if (now - _statsSentAt < 0.25f) return;
             _statsSentAt = now;
 
@@ -341,7 +344,7 @@ namespace R3DUnison.Session
                 RestoreSpeed();
                 return;
             }
-            float speed = Lobby.SpeedMultiplier;
+            float speed = SyncedStart.SpeedForNow(Game.LevelTracker.Current?.Key);
             if (UnityEngine.Mathf.Abs(speed - 1f) > 0.004f)
             {
                 GCS.currentSpeedTrial = speed;
@@ -360,6 +363,43 @@ namespace R3DUnison.Session
                 GCS.currentSpeedTrial = 1f;
                 _speedAsserted = false;
             }
+        }
+
+        // In the level select (a freeroam world all players share coordinates in),
+        // stream our planet position so roommates see each other roaming the menu.
+        private void TrySendMenuPresence(float now)
+        {
+            if (!InRoom || Members.Count < 2 || _transport == null) return;
+            if (now - _statsSentAt < 0.25f) return;
+            string key;
+            float posX, posY;
+            try
+            {
+                if (!ADOBase.isLevelSelect) return;
+                var planet = scrController.instance?.chosenPlanet;
+                if (planet == null) return;
+                var pos = planet.transform.position;
+                posX = pos.x;
+                posY = pos.y;
+                key = "menu:" + ADOBase.sceneName;
+            }
+            catch
+            {
+                return;
+            }
+            _statsSentAt = now;
+            var self = Members.FirstOrDefault(m => m.IsSelf);
+            if (self != null)
+            {
+                self.StatsKey = key;
+                self.StatsAt = now;
+                self.PosX = posX;
+                self.PosY = posY;
+                self.Dead = false;
+            }
+            _transport.Broadcast(
+                Codec.Encode(MessageType.LiveStats, new LiveStatsMsg { Key = key, PosX = posX, PosY = posY }),
+                SendMode.Unreliable);
         }
 
         private void DoForceRestart(string key)
@@ -487,6 +527,8 @@ namespace R3DUnison.Session
                         sender.SeqId = stats.SeqId;
                         sender.SongPos = stats.SongPos;
                         sender.StatsKey = stats.Key;
+                        sender.PosX = stats.PosX;
+                        sender.PosY = stats.PosY;
                         Scoreboard.NoteStats(sender, stats.Key);
                     }
                     break;
@@ -527,7 +569,8 @@ namespace R3DUnison.Session
                     if (restart != null && now - _forceRestartAt > 3f)
                     {
                         _forceRestartAt = now;
-                        Main.Log("[deathsync] a player died — restarting");
+                        Main.Log("[deathsync] room restart incoming");
+                        SyncedStart.ExpectRestart(restart.Key);
                         DoForceRestart(restart.Key);
                     }
                     break;

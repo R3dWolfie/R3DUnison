@@ -17,9 +17,9 @@ namespace R3DUnison.UI
             if (rm == null || !rm.InRoom) return;
             bool syncActive = SyncedStart.Active;
             var toasts = rm.Toasts.Where(t => Time.realtimeSinceStartup - t.At < 5f).ToList();
-            // Roster shows in-run with company; toasts show whenever recent (menu, solo, anywhere)
-            bool showRoster = (Game.LevelTracker.Current != null || syncActive)
-                && (rm.Members.Count > 1 || syncActive);
+            // Roster shows whenever you have company in the room (menu included);
+            // toasts show whenever recent, even solo.
+            bool showRoster = rm.Members.Count > 1 || syncActive;
             if (!showRoster && toasts.Count == 0) return;
 
             float scale = Mathf.Max(1f, Screen.height / 1080f);
@@ -33,6 +33,7 @@ namespace R3DUnison.UI
             {
                 height += rm.Members.Count * 30
                     + (SyncedStart.StatusLine != null ? 32 : 0)
+                    + (SpectatorCam.HintLine != null ? 32 : 0)
                     + (showResults ? 36 + Scoreboard.LastRound.Count * 26 : 0);
             }
             GUILayout.BeginArea(new Rect(16, 240, 320, height), UnisonTheme.Overlay);
@@ -51,6 +52,11 @@ namespace R3DUnison.UI
             if (SyncedStart.StatusLine != null)
             {
                 GUILayout.Label(SyncedStart.StatusLine, UnisonTheme.LevelText);
+                GUILayout.Space(4);
+            }
+            if (SpectatorCam.HintLine != null)
+            {
+                GUILayout.Label(SpectatorCam.HintLine, UnisonTheme.LevelText);
                 GUILayout.Space(4);
             }
             foreach (var member in rm.Members)

@@ -88,6 +88,9 @@ namespace R3DUnison.Protocol
         [JsonProperty("d")] public bool Dead;
         [JsonProperty("s")] public int SeqId;
         [JsonProperty("t")] public double SongPos;
+        /// <summary>Menu presence ("menu:" keys): planet world position in the level-select scene.</summary>
+        [JsonProperty("px")] public float PosX;
+        [JsonProperty("py")] public float PosY;
     }
 
     /// <summary>Death-sync room rule: someone died, everyone restarts together.</summary>
@@ -105,6 +108,8 @@ namespace R3DUnison.Protocol
         /// <summary>Custom levels: the level's folder name + .adofai file name, so peers can find their copy.</summary>
         [JsonProperty("f")] public string Folder;
         [JsonProperty("fn")] public string File;
+        /// <summary>Chart speed for this round, snapshotted by the initiator (host-authoritative).</summary>
+        [JsonProperty("sp")] public float Speed;
     }
 
     public class LevelReadyMsg

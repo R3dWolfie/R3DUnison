@@ -78,7 +78,11 @@ namespace R3DUnison.UI
             var rm = RoomManager.Instance;
             if (rm == null || !rm.InRoom || rm.Members.Count < 2) return;
             var mine = Game.LevelTracker.Current;
-            if (mine == null) return;
+            if (mine == null)
+            {
+                DrawMenuGhosts(rm);
+                return;
+            }
 
             List<scrFloor> floors;
             Camera cam;
@@ -133,6 +137,63 @@ namespace R3DUnison.UI
                 GUI.Label(new Rect(ax - nameW / 2 + 1, nameY + 1, nameW, 24f * scale), member.Name, _name);
                 _name.normal.textColor = new Color(color1.r, color1.g, color1.b, 0.95f);
                 GUI.Label(new Rect(ax - nameW / 2, nameY, nameW, 24f * scale), member.Name, _name);
+            }
+        }
+
+        // Level select is a shared-coordinate freeroam world: draw roommates' planet
+        // pairs idling/moving where they actually are in the same menu.
+        private void DrawMenuGhosts(RoomManager rm)
+        {
+            string key;
+            Camera cam;
+            try
+            {
+                if (!ADOBase.isLevelSelect) return;
+                key = "menu:" + ADOBase.sceneName;
+                cam = Camera.main;
+            }
+            catch
+            {
+                return;
+            }
+            if (cam == null) return;
+
+            UnisonTheme.Ensure();
+            float scale = Mathf.Max(1f, Screen.height / 1080f);
+            _name.fontSize = Mathf.RoundToInt(15f * scale);
+
+            int paletteIndex = 0;
+            foreach (var member in rm.Members)
+            {
+                if (member.IsSelf) continue;
+                var fallback = Palette[paletteIndex++ % Palette.Length];
+                if (!member.HasFreshStats || member.StatsKey != key) continue;
+
+                Vector3 center = new Vector3(member.PosX, member.PosY, 0f);
+                float angle = Time.time * 1.8f + paletteIndex;
+                Vector3 offset = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f) * 0.8f;
+                Vector3 screenA = cam.WorldToScreenPoint(center + offset);
+                Vector3 screenB = cam.WorldToScreenPoint(center - offset);
+                if (screenA.z <= 0f) continue;
+                float ax = screenA.x, ay = Screen.height - screenA.y;
+                float bx = screenB.x, by = Screen.height - screenB.y;
+                if (ax < -80 || ax > Screen.width + 80 || ay < -80 || ay > Screen.height + 80) continue;
+
+                Color color1 = member.HasColors ? member.Color1 : fallback;
+                Color color2 = member.HasColors ? member.Color2 : Color.Lerp(fallback, Color.white, 0.45f);
+                float orbitPx = new Vector2(bx - ax, by - ay).magnitude * 0.5f;
+                _planet.fontSize = Mathf.Clamp(Mathf.RoundToInt(orbitPx * 0.9f), 12, Mathf.RoundToInt(70f * scale));
+                DrawPlanet(ax, ay, color1);
+                DrawPlanet(bx, by, color2);
+
+                Vector3 screenC = cam.WorldToScreenPoint(center);
+                float cx = screenC.x, cy = Screen.height - screenC.y;
+                float nameW = 220f * scale;
+                float nameY = cy - _planet.fontSize - 26f * scale;
+                _name.normal.textColor = new Color(0f, 0f, 0f, 0.7f);
+                GUI.Label(new Rect(cx - nameW / 2 + 1, nameY + 1, nameW, 24f * scale), member.Name, _name);
+                _name.normal.textColor = new Color(color1.r, color1.g, color1.b, 0.95f);
+                GUI.Label(new Rect(cx - nameW / 2, nameY, nameW, 24f * scale), member.Name, _name);
             }
         }
 

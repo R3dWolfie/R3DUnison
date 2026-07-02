@@ -64,6 +64,111 @@ namespace R3DUnison.Session
             if (_isInitiator) _peersReady.Add(peer); // counts as resolved, they just sit out
         }
 
+        private static bool _spectating;
+
+        /// <summary>Loaded into a level as a gated spectator (camera on survivors, joins next round).</summary>
+        public static bool Spectating => _spectating;
+
+        /// <summary>Load the level a roommate is playing and hold at the gate as a spectator.</summary>
+        public static void SpectateInto(MemberState target)
+        {
+            var rm = RoomManager.Instance;
+            string key = target?.StatsKey;
+            if (rm == null || !rm.InRoom || key == null || key.StartsWith("menu:") || Active) return;
+            string tail = key.Substring(key.IndexOf(':') + 1);
+            try
+            {
+                if (key.StartsWith(OfficialPrefix))
+                {
+                    bool internalWorld = false;
+                    try
+                    {
+                        internalWorld = scrController.IsWorldAndLevelInternalLevel(tail);
+                    }
+                    catch
+                    {
+                    }
+                    if (!internalWorld && !Application.CanStreamedLevelBeLoaded(tail))
+                    {
+                        StatusLine = $"Can't load '{tail}' — missing world/DLC?";
+                        return;
+                    }
+                    GCS.checkpointNum = 0;
+                    GCS.internalLevelName = internalWorld ? tail : null;
+                    string scene = internalWorld ? "scnGame" : tail;
+                    GCS.sceneToLoad = scene;
+                    ADOBase.loader.LoadScene(scene);
+                }
+                else
+                {
+                    string path = Game.CustomLevels.Resolve(tail, null);
+                    if (path == null)
+                    {
+                        StatusLine = "You don't have that level — ask the host to start it (auto-download kicks in).";
+                        return;
+                    }
+                    GCS.checkpointNum = 0;
+                    var controller = scrController.instance;
+                    if (controller != null)
+                    {
+                        controller.LoadCustomLevel(path, tail);
+                    }
+                    else
+                    {
+                        GCS.sceneToLoad = "scnGame";
+                        GCS.customLevelPaths = new[] { path };
+                        GCS.customLevelIndex = 0;
+                        GCS.loadCustomFromBundle = false;
+                        GCS.customLevelId = tail;
+                        ADOBase.loader.LoadScene("scnGame");
+                    }
+                }
+                _spectating = true;
+                _expectRestartKey = key;
+                _expectRestartUntil = Time.realtimeSinceStartup + 60f;
+                StatusLine = "SPECTATE · loading…";
+                Main.Log($"[spectate] loading {key}");
+            }
+            catch (System.Exception e)
+            {
+                _spectating = false;
+                StatusLine = $"Spectate failed: {e.Message}";
+            }
+        }
+
+        // --- host-authoritative round speed ---
+
+        private static string _roundSpeedKey;
+        private static string _expectRestartKey;
+        private static float _expectRestartUntil;
+
+        /// <summary>Speed the current synced round runs at (from the initiator's StartLevel).</summary>
+        public static float RoundSpeed { get; private set; }
+
+        private static void SetRoundSpeed(string key, float speed)
+        {
+            _roundSpeedKey = key;
+            RoundSpeed = speed <= 0.05f ? 1f : speed;
+        }
+
+        /// <summary>A room-wide restart is incoming: gate our reload until the host's GO.</summary>
+        public static void ExpectRestart(string key)
+        {
+            _expectRestartKey = key;
+            _expectRestartUntil = Time.realtimeSinceStartup + 15f;
+        }
+
+        /// <summary>The speed that should govern right now: the round's snapshot when one is live, else the lobby setting.</summary>
+        public static float SpeedForNow(string currentKey)
+        {
+            if (RoundSpeed > 0f && (Active || (currentKey != null && currentKey == _roundSpeedKey)))
+            {
+                return RoundSpeed;
+            }
+            var rm = RoomManager.Instance;
+            return rm?.Lobby != null && rm.InRoom ? rm.Lobby.SpeedMultiplier : 1f;
+        }
+
         /// <summary>Harmony prefix decision point. Returns true to let StartMusic run.</summary>
         public static bool OnStartMusic(scrConductor conductor, Action onComplete, Action onSongScheduled)
         {
@@ -75,7 +180,7 @@ namespace R3DUnison.Session
             // Room speed: customs get it at load via GCS.currentSpeedTrial (kept asserted by
             // RoomManager while in a room); official levels ignore that var, so multiply the
             // song pitch here — before StartMusic schedules — for every in-room run.
-            if (!presence.IsCustom) ApplyRoomSpeed(conductor);
+            if (!presence.IsCustom) ApplyRoomSpeed(conductor, presence.Key);
             if (rm.Members.Count < 2 || !Main.Settings.SyncedStarts) return true;
             // Quick retry of the level we just synced runs free — only fresh entries sync.
             if (presence.Key == _lastSyncedKey && Time.realtimeSinceStartup - Game.LevelTracker.LastExitRealtime < RetryWindowSeconds)
@@ -98,6 +203,23 @@ namespace R3DUnison.Session
                 StatusLine = "SYNCED START · waiting for host…";
                 rm.SendAll(MessageType.Ready, new LevelReadyMsg { Key = _key });
                 Main.Log($"[sync] armed at gate for {_key}");
+                return false;
+            }
+
+            // Reload after a room-wide restart (death-sync wipe / speed change): don't race
+            // the host — gate here and wait for the fresh GO.
+            if (!rm.Lobby.IsOwner && _expectRestartKey != null && presence.Key == _expectRestartKey
+                && Time.realtimeSinceStartup < _expectRestartUntil)
+            {
+                _expectRestartKey = null;
+                _isInitiator = false;
+                _key = presence.Key;
+                Defer(conductor, onComplete, onSongScheduled);
+                _phase = Phase.ClientArmed;
+                _deadline = Time.realtimeSinceStartup + (_spectating ? 3600f : 30f);
+                StatusLine = _spectating ? "SPECTATING · joins the next round" : "SYNCED START · waiting for host…";
+                rm.SendAll(MessageType.Ready, new LevelReadyMsg { Key = _key });
+                Main.Log(_spectating ? "[spectate] gate armed" : "[sync] restart-gate armed");
                 return false;
             }
 
@@ -124,6 +246,7 @@ namespace R3DUnison.Session
             _phase = Phase.HostCollecting;
             _key = presence.Key;
             _display = presence.Display;
+            SetRoundSpeed(_key, rm.Lobby.SpeedMultiplier);
             Defer(conductor, onComplete, onSongScheduled);
             _peersReady.Clear();
             _deadline = Time.realtimeSinceStartup + 20f;
@@ -134,6 +257,7 @@ namespace R3DUnison.Session
                 Checkpoint = GCS.checkpointNum,
                 Folder = folder,
                 File = file,
+                Speed = RoundSpeed,
             });
             StatusLine = "SYNCED START · waiting for players…";
             Main.Log($"[sync] host gating {_key}, StartLevel broadcast");
@@ -173,8 +297,9 @@ namespace R3DUnison.Session
                     if (Time.realtimeSinceStartup > _deadline) Reset("level load timed out");
                     break;
                 case Phase.ClientArmed:
-                    // Host never said GO (started without us / vanished): don't sit gated forever
-                    if (Time.realtimeSinceStartup > _deadline) Fire();
+                    // Host never said GO (started without us / vanished): don't sit gated forever.
+                    // Spectators are gated on purpose — they wait for the next round.
+                    if (!_spectating && Time.realtimeSinceStartup > _deadline) Fire();
                     break;
                 case Phase.Countdown:
                 {
@@ -218,11 +343,11 @@ namespace R3DUnison.Session
 
         // Multiply the song pitch once per conductor instance (fresh per scene load, so
         // it naturally covers retries without double-applying on re-deferred calls).
-        private static void ApplyRoomSpeed(scrConductor conductor)
+        private static void ApplyRoomSpeed(scrConductor conductor, string levelKey)
         {
             var rm = RoomManager.Instance;
             if (conductor == null || rm?.Lobby == null || !rm.InRoom) return;
-            float speed = rm.Lobby.SpeedMultiplier;
+            float speed = SpeedForNow(levelKey);
             if (Mathf.Abs(speed - 1f) < 0.005f) return;
             int id = conductor.GetInstanceID();
             if (_speedAppliedTo == id) return;
@@ -242,6 +367,7 @@ namespace R3DUnison.Session
         {
             var rm = RoomManager.Instance;
             if (rm == null || !rm.InRoom || _isInitiator || msg?.Key == null) return;
+            SetRoundSpeed(msg.Key, msg.Speed); // host-authoritative for this round
             var current = Game.LevelTracker.TryDetect();
             if (current != null && current.Key == msg.Key)
             {
@@ -255,13 +381,24 @@ namespace R3DUnison.Session
 
             bool official = msg.Key.StartsWith(OfficialPrefix);
             string scene = null, customPath = null;
+            bool internalWorld = false;
             if (official)
             {
                 scene = msg.Key.Substring(OfficialPrefix.Length);
-                if (!Application.CanStreamedLevelBeLoaded(scene))
+                // Bonus/DLC worlds (XI-X etc.) aren't scenes — they run inside scnGame
+                // via GCS.internalLevelName, exactly how the game's own portals load them.
+                try
                 {
-                    StatusLine = $"Can't load level '{msg.Display}'";
-                    Main.Log($"[sync] scene '{scene}' not loadable");
+                    internalWorld = scrController.IsWorldAndLevelInternalLevel(scene);
+                }
+                catch
+                {
+                    internalWorld = false; // unknown world key on this install
+                }
+                if (!internalWorld && !Application.CanStreamedLevelBeLoaded(scene))
+                {
+                    StatusLine = $"Can't load level '{msg.Display}' — missing world/DLC?";
+                    Main.Log($"[sync] scene '{scene}' not loadable and not an internal world");
                     return;
                 }
             }
@@ -288,9 +425,11 @@ namespace R3DUnison.Session
                 GCS.checkpointNum = msg.Checkpoint;
                 if (official)
                 {
-                    GCS.sceneToLoad = scene;
-                    ADOBase.loader.LoadScene(scene);
-                    Main.Log($"[sync] pulled into {scene} (checkpoint {msg.Checkpoint})");
+                    GCS.internalLevelName = internalWorld ? scene : null;
+                    string sceneToLoad = internalWorld ? "scnGame" : scene;
+                    GCS.sceneToLoad = sceneToLoad;
+                    ADOBase.loader.LoadScene(sceneToLoad);
+                    Main.Log($"[sync] pulled into {scene} (internal={internalWorld}, checkpoint {msg.Checkpoint})");
                 }
                 else
                 {
@@ -363,12 +502,16 @@ namespace R3DUnison.Session
         {
             if (!_isInitiator && _conductor != null) Fire();
             else Reset(null);
+            RoundSpeed = 0f;
+            _roundSpeedKey = null;
+            _expectRestartKey = null;
         }
 
         private static void Reset(string reason)
         {
             _phase = Phase.Idle;
             _isInitiator = false;
+            _spectating = false;
             _conductor = null;
             _onComplete = null;
             _onSongScheduled = null;
