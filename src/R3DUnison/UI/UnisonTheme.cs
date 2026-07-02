@@ -88,34 +88,11 @@ namespace R3DUnison.UI
             return tex;
         }
 
-        private static Font PickFont(params string[] preferred)
-        {
-            try
-            {
-                var installed = Font.GetOSInstalledFontNames();
-                foreach (var want in preferred)
-                {
-                    var hit = installed.FirstOrDefault(f =>
-                        f.Equals(want, StringComparison.OrdinalIgnoreCase) ||
-                        f.StartsWith(want, StringComparison.OrdinalIgnoreCase));
-                    if (hit != null) return Font.CreateDynamicFontFromOSFont(hit, 16);
-                }
-            }
-            catch
-            {
-                // headless/odd platforms: default font
-            }
-            return null;
-        }
-
         private static void Build()
         {
-            // r3d.css: display = Big Shoulders / Impact-ish, body = Sora, buttons+meta = JetBrains Mono
-            Font display = PickFont("Big Shoulders", "Archivo Narrow", "Oswald", "Impact");
-            Font body = PickFont("Sora", "Inter", "Noto Sans", "DejaVu Sans");
-            Font mono = PickFont("JetBrains Mono", "JetBrainsMono", "Fira Code", "Cascadia", "DejaVu Sans Mono");
-            Main.Log($"Theme fonts — display: {display?.name ?? "default"}, body: {body?.name ?? "default"}, mono: {mono?.name ?? "default"}");
-
+            // NOTE: no runtime OS fonts — Unity's dynamic font atlas corrupts IMGUI text
+            // (blank buttons, glyphs swapped between labels; seen 2026-07-02). Default
+            // font + weights only; the R3D look is carried by color/shape.
             var windowTex = Rounded(64, 18, WithA(Ink0, 0.97f), Ink300, 2);
             Window = new GUIStyle
             {
@@ -125,26 +102,20 @@ namespace R3DUnison.UI
             };
 
             Title = new GUIStyle { fontSize = 32, fontStyle = FontStyle.Bold, normal = { textColor = Ink800 } };
-            if (display != null) Title.font = display;
 
             TitleTag = new GUIStyle { fontSize = 13, normal = { textColor = Ink500 }, alignment = TextAnchor.MiddleRight, padding = new RectOffset(0, 0, 12, 0) };
-            if (mono != null) TitleTag.font = mono;
 
             Header = new GUIStyle { fontSize = 15, fontStyle = FontStyle.Bold, normal = { textColor = Ink700 } };
-            if (mono != null) Header.font = mono;
 
             Label = new GUIStyle { fontSize = 17, normal = { textColor = Ink700 }, wordWrap = false };
-            if (body != null) Label.font = body;
 
             Name = new GUIStyle(Label) { fontSize = 18, fontStyle = FontStyle.Bold, normal = { textColor = Ink800 } };
 
             Dim = new GUIStyle(Label) { fontSize = 15, normal = { textColor = Ink500 } };
 
             Status = new GUIStyle { fontSize = 13, normal = { textColor = Ink500 }, wordWrap = true };
-            if (mono != null) Status.font = mono;
 
             LevelText = new GUIStyle { fontSize = 14, normal = { textColor = Red400 } };
-            if (mono != null) LevelText.font = mono;
 
             Card = new GUIStyle
             {
@@ -171,7 +142,6 @@ namespace R3DUnison.UI
                 border = new RectOffset(12, 12, 12, 12),
                 padding = new RectOffset(16, 16, 9, 9),
             };
-            if (mono != null) Button.font = mono;
 
             ButtonPrimary = new GUIStyle(Button)
             {
@@ -190,7 +160,6 @@ namespace R3DUnison.UI
                 padding = new RectOffset(12, 12, 8, 8),
                 clipping = TextClipping.Clip,
             };
-            if (body != null) TextField.font = body;
 
             Overlay = new GUIStyle
             {
@@ -200,13 +169,11 @@ namespace R3DUnison.UI
             };
 
             OverlayHead = new GUIStyle { fontSize = 11, normal = { textColor = Red400 }, fontStyle = FontStyle.Bold };
-            if (mono != null) OverlayHead.font = mono;
 
             DotOn = new GUIStyle { fontSize = 15, normal = { textColor = Green }, padding = new RectOffset(0, 6, 2, 0) };
             DotOff = new GUIStyle(DotOn) { normal = { textColor = Ink500 } };
 
             ChipHost = new GUIStyle { fontSize = 11, normal = { textColor = Red400 }, padding = new RectOffset(8, 0, 6, 0) };
-            if (mono != null) ChipHost.font = mono;
             ChipYou = new GUIStyle(ChipHost) { normal = { textColor = Ink500 } };
 
             _accentBar = new GUIStyle { normal = { background = Solid(Red500) }, fixedHeight = 3, stretchWidth = true, margin = new RectOffset(0, 0, 6, 0) };
