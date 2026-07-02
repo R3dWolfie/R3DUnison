@@ -2,7 +2,7 @@
   "Id": "R3DUnison",
   "DisplayName": "R3D Unison",
   "Author": "R3D",
-  "Version": "0.1.0",
+  "Version": "0.2.0",
   "AssemblyName": "R3DUnison.dll",
   "EntryMethod": "R3DUnison.Main.Load",
   "HomePage": "https://github.com/R3dWolfie/R3DUnison",

@@ -38,6 +38,7 @@ namespace R3DUnison
                 _windowGo = new UnityEngine.GameObject("R3DUnison.MultiplayerWindow");
                 UnityEngine.Object.DontDestroyOnLoad(_windowGo);
                 _windowGo.AddComponent<UI.MultiplayerWindow>();
+                _windowGo.AddComponent<UI.RosterOverlay>();
                 SceneManager.sceneLoaded += OnSceneLoaded;
                 Log("Enabled.");
             }
