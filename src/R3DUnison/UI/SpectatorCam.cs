@@ -19,6 +19,14 @@ namespace R3DUnison.UI
         private AudioSource _audio;
         private static int _targetIndex;
 
+        /// <summary>Clear static spectate state on mod disable so a re-enable starts clean.</summary>
+        public static void ResetState()
+        {
+            HoldingFailScreen = false;
+            HintLine = null;
+            _targetIndex = 0;
+        }
+
         // Stable, sorted list of who you can watch right now (alive, same level, not you).
         private static System.Collections.Generic.List<Session.MemberState> Candidates(Session.RoomManager rm, string key)
         {

@@ -682,6 +682,17 @@ namespace R3DUnison.Session
             }
         }
 
+        /// <summary>
+        /// Close all Steam networking (P2P sessions + lobby) NOW. Safe to call repeatedly;
+        /// used on game quit so Steam doesn't shut down with our sessions still open.
+        /// </summary>
+        public void CloseNetworking()
+        {
+            try { _transport?.Dispose(); } catch { }
+            _transport = null;
+            try { Lobby?.Leave(); } catch { }
+        }
+
         public void Dispose()
         {
             SyncedStart.ResetAll();

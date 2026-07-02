@@ -28,6 +28,20 @@ namespace R3DUnison.Core
         public static bool Applied { get; private set; }
 
         private static string _downloadUrl = FallbackZipUrl;
+        private static bool _started;
+        private static bool _cancelled;
+
+        /// <summary>Clear all updater state on mod disable so a re-enable starts clean.</summary>
+        public static void Reset()
+        {
+            _cancelled = true;   // in-flight coroutines bail after their next yield
+            _started = false;
+            AvailableVersion = null;
+            State = null;
+            Busy = false;
+            Applied = false;
+            _downloadUrl = FallbackZipUrl;
+        }
 
 #pragma warning disable 649 // populated by Newtonsoft via reflection
         private class RepoFile
@@ -47,6 +61,9 @@ namespace R3DUnison.Core
 
         public static void OnStartup()
         {
+            if (_started) return; // don't stack a second check on re-enable
+            _started = true;
+            _cancelled = false;
             CleanupOldFiles();
             MainThreadDispatcher.Run(CheckRoutine());
         }
@@ -71,6 +88,7 @@ namespace R3DUnison.Core
             using (var request = UnityWebRequest.Get(RepoJsonUrl))
             {
                 yield return request.SendWebRequest();
+                if (_cancelled) yield break; // mod was disabled mid-check
                 if (request.result != UnityWebRequest.Result.Success)
                 {
                     Main.Log($"[update] check failed: {request.error}");
@@ -124,11 +142,15 @@ namespace R3DUnison.Core
 
         private static IEnumerator ApplyRoutine()
         {
+            // Defer the first State mutation off the button-click frame — setting it
+            // synchronously adds a Label the Layout pass didn't have (IMGUI count mismatch).
+            yield return null;
             Busy = true;
             State = $"Downloading v{AvailableVersion}…";
             using (var request = UnityWebRequest.Get(_downloadUrl))
             {
                 yield return request.SendWebRequest();
+                if (_cancelled) { Busy = false; yield break; }
                 if (request.result != UnityWebRequest.Result.Success)
                 {
                     State = $"Download failed: {request.error}";
@@ -155,26 +177,38 @@ namespace R3DUnison.Core
 
         private static void Install(byte[] zipBytes)
         {
+            // Decompress everything into memory FIRST so a corrupt archive fails before we
+            // touch any file on disk (no half-swapped, unbootable install).
+            var files = new System.Collections.Generic.Dictionary<string, byte[]>();
             using (var stream = new MemoryStream(zipBytes))
             using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
             {
                 foreach (var entry in archive.Entries)
                 {
                     if (entry.Name.Length == 0) continue; // directory entries
-                    // zip layout: R3DUnison/<file> — flatten into our mod folder
-                    string target = Path.Combine(ModDir, Path.GetFileName(entry.FullName));
-                    if (File.Exists(target))
-                    {
-                        string old = target + ".old";
-                        if (File.Exists(old)) File.Delete(old);
-                        File.Move(target, old);
-                    }
                     using (var source = entry.Open())
-                    using (var output = File.Create(target))
+                    using (var mem = new MemoryStream())
                     {
-                        source.CopyTo(output);
+                        source.CopyTo(mem);
+                        // zip layout: R3DUnison/<file> — flatten into our mod folder
+                        files[Path.GetFileName(entry.FullName)] = mem.ToArray();
                     }
                 }
+            }
+            if (files.Count == 0) throw new Exception("release archive was empty");
+
+            // Now swap files from validated in-memory data. Move-to-.old lets the current
+            // (possibly loaded) DLL be replaced; .old is cleaned on next launch.
+            foreach (var kv in files)
+            {
+                string target = Path.Combine(ModDir, kv.Key);
+                if (File.Exists(target))
+                {
+                    string old = target + ".old";
+                    if (File.Exists(old)) File.Delete(old);
+                    File.Move(target, old);
+                }
+                File.WriteAllBytes(target, kv.Value);
             }
         }
     }

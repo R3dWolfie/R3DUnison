@@ -81,9 +81,31 @@ namespace R3DUnison.Session
         public static void Tick()
         {
             if (ActiveRoundKey == null) return;
-            bool elimDone = ElimRound && _entries.Count >= 2 && _entries.Values.All(e => e.Won || e.Eliminated);
-            bool timerDone = _closeAt > 0f && Time.realtimeSinceStartup > _closeAt;
-            if (elimDone || timerDone) CloseRound();
+            // Drop entries for players who left — a departed player must not block the round
+            // from ever finishing (they'll never win or die).
+            var rm = RoomManager.Instance;
+            if (rm != null)
+            {
+                foreach (var goneId in _entries.Keys.Where(id => !rm.Members.Any(m => m.Id == id)).ToList())
+                {
+                    _entries.Remove(goneId);
+                }
+            }
+            if (_entries.Count == 0)
+            {
+                ActiveRoundKey = null;
+                return;
+            }
+
+            // Everyone present has either finished or died at least once → the round is over,
+            // regardless of mode (covers Free/DeathSync where all die and none finish, and
+            // elimination where the last entrant leaves). Arm a short close timer.
+            bool allDone = _entries.Values.All(e => e.Won || e.Eliminated || e.DeathOrder > 0);
+            if (allDone && (_closeAt < 0f || _closeAt > Time.realtimeSinceStartup + 3f))
+            {
+                _closeAt = Time.realtimeSinceStartup + 3f;
+            }
+            if (_closeAt > 0f && Time.realtimeSinceStartup > _closeAt) CloseRound();
         }
 
         private static void CloseRound()

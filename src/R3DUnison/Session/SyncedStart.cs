@@ -331,6 +331,16 @@ namespace R3DUnison.Session
         {
             var rm = RoomManager.Instance;
             if (rm == null) return;
+            // If we're a gated client and the round's host has left the room (Steam silently
+            // transfers lobby ownership to us), no GO is ever coming — release the gate so the
+            // level plays and we can exit normally instead of sitting frozen.
+            if (!_isInitiator && _conductor != null && rm.Lobby != null && rm.Lobby.IsOwner
+                && (_phase == Phase.ClientArmed || _phase == Phase.ClientLoading || _phase == Phase.Countdown))
+            {
+                Main.Log("[sync] host left while gated — releasing");
+                Fire();
+                return;
+            }
             switch (_phase)
             {
                 case Phase.HostCollecting:

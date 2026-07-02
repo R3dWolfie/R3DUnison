@@ -57,6 +57,9 @@ namespace R3DUnison
                 }
                 Session.RoomManager.Shutdown();
                 Game.LevelTracker.Stop();
+                // Reset static state so a re-enable starts clean (no stale updater/spectate flags).
+                Core.SelfUpdater.Reset();
+                UI.SpectatorCam.ResetState();
                 _harmony?.UnpatchAll(modEntry.Info.Id);
                 _harmony = null;
                 Log("Disabled.");

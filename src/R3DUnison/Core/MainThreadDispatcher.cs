@@ -56,5 +56,21 @@ namespace R3DUnison.Core
                 Main.LogError($"OnFrame handler threw: {e}");
             }
         }
+
+        // CRITICAL: UMM never runs the mod's disable path on game quit, so without this the
+        // Steam P2P transport is torn down by Steam with sessions still open — Steam then
+        // hammers epoll on dead fds (EBADF) and SIGSEGVs ("won't close" / crash on exit).
+        // Closing our sessions before Steam shuts down avoids that.
+        private void OnApplicationQuit()
+        {
+            try
+            {
+                Session.RoomManager.Instance?.CloseNetworking();
+            }
+            catch (Exception e)
+            {
+                Main.LogError($"Quit cleanup failed: {e}");
+            }
+        }
     }
 }
