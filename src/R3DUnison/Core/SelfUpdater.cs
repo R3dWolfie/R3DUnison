@@ -80,18 +80,40 @@ namespace R3DUnison.Core
                 {
                     var repo = JsonConvert.DeserializeObject<RepoFile>(request.downloadHandler.text);
                     var release = repo?.Releases?.FirstOrDefault(r => r.Id == Main.Mod.Info.Id);
-                    if (release?.Version != null && new Version(release.Version) > new Version(Main.Mod.Info.Version))
+                    if (release?.Version != null
+                        && TryParseVersion(release.Version, out var remote)
+                        && TryParseVersion(Main.Mod.Info.Version, out var local))
                     {
-                        AvailableVersion = release.Version;
-                        if (!string.IsNullOrEmpty(release.DownloadUrl)) _downloadUrl = release.DownloadUrl;
-                        Main.Log($"[update] v{release.Version} available (installed v{Main.Mod.Info.Version})");
+                        if (remote > local)
+                        {
+                            AvailableVersion = release.Version;
+                            if (!string.IsNullOrEmpty(release.DownloadUrl)) _downloadUrl = release.DownloadUrl;
+                            Main.Log($"[update] v{release.Version} available (installed v{Main.Mod.Info.Version})");
+                        }
+                    }
+                    else if (release?.Version != null)
+                    {
+                        // Loud, not silent: a bad version string must not quietly disable updates.
+                        Main.LogError($"[update] unparseable version '{release.Version}' vs '{Main.Mod.Info.Version}' — update check skipped");
                     }
                 }
                 catch (Exception e)
                 {
-                    Main.Log($"[update] repository parse failed: {e.Message}");
+                    Main.LogError($"[update] repository parse failed: {e.Message}");
                 }
             }
+        }
+
+        // Tolerant version parse: strips a leading 'v' and any '-suffix' (e.g. "v1.2.0-beta").
+        private static bool TryParseVersion(string raw, out Version version)
+        {
+            version = null;
+            if (string.IsNullOrEmpty(raw)) return false;
+            string s = raw.Trim();
+            if (s.StartsWith("v") || s.StartsWith("V")) s = s.Substring(1);
+            int dash = s.IndexOf('-');
+            if (dash >= 0) s = s.Substring(0, dash);
+            return Version.TryParse(s, out version);
         }
 
         public static void Apply()

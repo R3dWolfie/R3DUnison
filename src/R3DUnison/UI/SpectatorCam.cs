@@ -33,7 +33,7 @@ namespace R3DUnison.UI
             {
                 var conductor = ADOBase.conductor;
                 var clip = conductor != null && conductor.song != null ? conductor.song.clip : null;
-                if (clip == null || (conductor.song.isPlaying && !SyncedStart.Spectating))
+                if (clip == null)
                 {
                     if (_audio.isPlaying) _audio.Stop();
                     return;
@@ -102,8 +102,8 @@ namespace R3DUnison.UI
                 var controller = scrController.instance;
                 if (controller == null) return;
                 bool dead = controller.currentState == States.Fail || controller.currentState == States.Fail2;
-                bool gatedSpectator = SyncedStart.Spectating;
-                if (!dead && !gatedSpectator)
+                bool autoSpec = SyncedStart.AutoSpectating;
+                if (!dead && !autoSpec)
                 {
                     StopSpectateAudio();
                     return;
@@ -113,22 +113,26 @@ namespace R3DUnison.UI
                     .Where(m => !m.IsSelf && !m.Dead && m.HasFreshStats && m.StatsKey == mine.Key)
                     .OrderByDescending(m => m.Progress)
                     .FirstOrDefault();
+
+                if (autoSpec)
+                {
+                    // Autoplay drives its own camera + audio; we only label who's leading.
+                    StopSpectateAudio();
+                    HintLine = target != null
+                        ? $"SPECTATING {target.Name} (autoplay) — exit via the pause menu"
+                        : "SPECTATING (autoplay) — exit via the pause menu";
+                    return;
+                }
+
+                // Dead: pan the frozen level's camera to the leading survivor + play synced audio.
                 if (target == null)
                 {
                     StopSpectateAudio();
-                    if (gatedSpectator) HintLine = "SPECTATING · waiting for players…";
                     return;
                 }
                 UpdateSpectateAudio(target);
-                if (dead)
-                {
-                    HoldingFailScreen = true;
-                    HintLine = $"SPECTATING {target.Name} — press R to retry";
-                }
-                else
-                {
-                    HintLine = $"SPECTATING {target.Name} — you join the next round";
-                }
+                HoldingFailScreen = true;
+                HintLine = $"SPECTATING {target.Name} — press R to retry";
 
                 var floors = ADOBase.lm?.listFloors;
                 if (floors == null || floors.Count == 0) return;

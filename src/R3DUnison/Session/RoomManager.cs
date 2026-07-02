@@ -97,7 +97,13 @@ namespace R3DUnison.Session
             Lobby.Left += OnLeft;
             Lobby.MembersChanged += RefreshMembers;
             Lobby.RoomsListed += OnRoomsListed;
-            Lobby.JoinFailed += message => Status = message;
+            Lobby.JoinFailed += message =>
+            {
+                Status = message;
+                // Clear auto-room intent so a failed create doesn't spawn a duplicate next level.
+                IsAutoRoom = false;
+                _announcedLevel = null;
+            };
             Main.Log("Steam ready — multiplayer available.");
         }
 
@@ -234,6 +240,13 @@ namespace R3DUnison.Session
         private void TickLiveStats()
         {
             if (!InRoom || Members.Count < 2 || _transport == null) return;
+            // While autoplay-spectating we're technically "in" a level, but broadcasting our
+            // perfect autoplay would show a ghost of us and win the round for us — stay quiet.
+            if (SyncedStart.AutoSpectating)
+            {
+                _localWon = false;
+                return;
+            }
             var level = Game.LevelTracker.Current;
             float now = UnityEngine.Time.realtimeSinceStartup;
             if (level == null)

@@ -208,6 +208,14 @@ namespace R3DUnison.Session
         public static void Accept()
         {
             if (PendingOffer == null) return;
+            // Reject a bogus/oversized offer rather than allocating gigabytes or overflowing.
+            if (PendingOffer.Size <= 0 || PendingOffer.Size > MaxLevelBytes || PendingOffer.Chunks <= 0)
+            {
+                PeerStatus = "That level transfer looks invalid — declined.";
+                Main.LogError($"[transfer] rejected offer: size={PendingOffer.Size} chunks={PendingOffer.Chunks}");
+                Decline();
+                return;
+            }
             _receiveBuffer = new byte[PendingOffer.Size];
             _expectedChunks = PendingOffer.Chunks;
             _receivedChunks = 0;
@@ -226,9 +234,22 @@ namespace R3DUnison.Session
 
         public static void OnChunk(ulong from, LevelChunkMsg msg)
         {
-            if (_receiveBuffer == null || _pendingStart == null || msg?.Key != _pendingStart.Key) return;
-            byte[] bytes = Convert.FromBase64String(msg.Data);
-            Buffer.BlockCopy(bytes, 0, _receiveBuffer, msg.Index * ChunkSize, bytes.Length);
+            if (_receiveBuffer == null || _pendingStart == null || msg?.Key != _pendingStart.Key || msg.Data == null) return;
+            // Validate the attacker/mismatch-controlled index and length before copying —
+            // a bad index or overlong chunk must not crash the per-frame message loop.
+            if (msg.Index < 0 || msg.Index >= _expectedChunks) return;
+            long offset = (long)msg.Index * ChunkSize;
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(msg.Data);
+            }
+            catch (FormatException)
+            {
+                return;
+            }
+            if (offset < 0 || offset + bytes.Length > _receiveBuffer.Length) return;
+            Buffer.BlockCopy(bytes, 0, _receiveBuffer, (int)offset, bytes.Length);
             _receivedChunks++;
             DownloadProgress = (float)_receivedChunks / _expectedChunks;
             RoomManager.Instance?.SendToPeer(from, MessageType.ChunkAck, new ChunkAckMsg { Key = msg.Key, Index = msg.Index });

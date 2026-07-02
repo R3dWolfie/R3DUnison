@@ -64,17 +64,24 @@ namespace R3DUnison.Session
             if (_isInitiator) _peersReady.Add(peer); // counts as resolved, they just sit out
         }
 
-        private static bool _spectating;
+        private static bool _autoSpectating;
+        private static bool _weSetAuto;
+        private static bool _autoPrev;
 
-        /// <summary>Loaded into a level as a gated spectator (camera on survivors, joins next round).</summary>
-        public static bool Spectating => _spectating;
+        /// <summary>Watching a roommate's level play itself via the game's autoplay.</summary>
+        public static bool AutoSpectating => _autoSpectating;
 
-        /// <summary>Load the level a roommate is playing and hold at the gate as a spectator.</summary>
+        /// <summary>
+        /// Load the level a roommate is playing and watch it play out via autoplay — the
+        /// game renders the map in motion, plays the music, and drives the camera itself
+        /// (far more robust than gating a frozen, black-screened level). Exiting the level
+        /// or the host starting a real round turns autoplay back off.
+        /// </summary>
         public static void SpectateInto(MemberState target)
         {
             var rm = RoomManager.Instance;
             string key = target?.StatsKey;
-            if (rm == null || !rm.InRoom || key == null || key.StartsWith("menu:") || Active) return;
+            if (rm == null || !rm.InRoom || key == null || key.StartsWith("menu:") || Active || _autoSpectating) return;
             try
             {
                 if (ADOBase.isLevelEditor)
@@ -89,22 +96,33 @@ namespace R3DUnison.Session
             string tail = key.Substring(key.IndexOf(':') + 1);
             try
             {
-                if (key.StartsWith(OfficialPrefix))
+                bool official = key.StartsWith(OfficialPrefix);
+                string customPath = null;
+                bool internalWorld = false;
+                if (official)
                 {
-                    bool internalWorld = false;
-                    try
-                    {
-                        internalWorld = scrController.IsWorldAndLevelInternalLevel(tail);
-                    }
-                    catch
-                    {
-                    }
+                    try { internalWorld = scrController.IsWorldAndLevelInternalLevel(tail); } catch { }
                     if (!internalWorld && !Application.CanStreamedLevelBeLoaded(tail))
                     {
                         StatusLine = $"Can't load '{tail}' — missing world/DLC?";
                         return;
                     }
-                    GCS.checkpointNum = 0;
+                }
+                else
+                {
+                    customPath = Game.CustomLevels.Resolve(tail, null);
+                    if (customPath == null)
+                    {
+                        StatusLine = "You don't have that level — ask the host to start it (auto-download kicks in).";
+                        return;
+                    }
+                }
+
+                EnableAutoplay();
+                _autoSpectating = true;
+                GCS.checkpointNum = 0;
+                if (official)
+                {
                     GCS.internalLevelName = internalWorld ? tail : null;
                     string scene = internalWorld ? "scnGame" : tail;
                     GCS.sceneToLoad = scene;
@@ -112,39 +130,54 @@ namespace R3DUnison.Session
                 }
                 else
                 {
-                    string path = Game.CustomLevels.Resolve(tail, null);
-                    if (path == null)
-                    {
-                        StatusLine = "You don't have that level — ask the host to start it (auto-download kicks in).";
-                        return;
-                    }
-                    GCS.checkpointNum = 0;
                     var controller = scrController.instance;
                     if (controller != null)
                     {
-                        controller.LoadCustomLevel(path, tail);
+                        controller.LoadCustomLevel(customPath, tail);
                     }
                     else
                     {
                         GCS.sceneToLoad = "scnGame";
-                        GCS.customLevelPaths = new[] { path };
+                        GCS.customLevelPaths = new[] { customPath };
                         GCS.customLevelIndex = 0;
                         GCS.loadCustomFromBundle = false;
                         GCS.customLevelId = tail;
                         ADOBase.loader.LoadScene("scnGame");
                     }
                 }
-                _spectating = true;
-                _expectRestartKey = key;
-                _expectRestartUntil = Time.realtimeSinceStartup + 60f;
-                StatusLine = "SPECTATE · loading…";
-                Main.Log($"[spectate] loading {key}");
+                StatusLine = "SPECTATING (autoplay) — exit via the pause menu";
+                Main.Log($"[spectate] autoplay into {key}");
             }
             catch (System.Exception e)
             {
-                _spectating = false;
+                StopAutoSpectate();
                 StatusLine = $"Spectate failed: {e.Message}";
             }
+        }
+
+        private static void EnableAutoplay()
+        {
+            try
+            {
+                _autoPrev = RDC.auto;
+                RDC.auto = true;
+                _weSetAuto = true;
+            }
+            catch
+            {
+                _weSetAuto = false;
+            }
+        }
+
+        /// <summary>Turn our autoplay spectate off, restoring the player's own autoplay setting.</summary>
+        public static void StopAutoSpectate()
+        {
+            if (_weSetAuto)
+            {
+                try { RDC.auto = _autoPrev; } catch { }
+                _weSetAuto = false;
+            }
+            _autoSpectating = false;
         }
 
         // --- host-authoritative round speed ---
@@ -184,6 +217,7 @@ namespace R3DUnison.Session
         public static bool OnStartMusic(scrConductor conductor, Action onComplete, Action onSongScheduled)
         {
             if (_passthrough) return true;
+            if (_autoSpectating) return true; // autoplay spectate drives itself — never gate it
             var rm = RoomManager.Instance;
             if (rm == null || !rm.SteamReady || !rm.InRoom) return true;
             var presence = Game.LevelTracker.TryDetect();
@@ -227,22 +261,10 @@ namespace R3DUnison.Session
                 _key = presence.Key;
                 Defer(conductor, onComplete, onSongScheduled);
                 _phase = Phase.ClientArmed;
-                _deadline = Time.realtimeSinceStartup + (_spectating ? 3600f : 30f);
-                StatusLine = _spectating ? "SPECTATING · joins the next round" : "SYNCED START · waiting for host…";
+                _deadline = Time.realtimeSinceStartup + 30f;
+                StatusLine = "SYNCED START · waiting for host…";
                 rm.SendAll(MessageType.Ready, new LevelReadyMsg { Key = _key });
-                if (_spectating)
-                {
-                    // The scene's black wipe only clears when music schedules — which we're
-                    // holding. Clear it so the spectator actually sees the level.
-                    try
-                    {
-                        scrUIController.instance?.WipeFromBlack(withSound: false);
-                    }
-                    catch
-                    {
-                    }
-                }
-                Main.Log(_spectating ? "[spectate] gate armed" : "[sync] restart-gate armed");
+                Main.Log("[sync] restart-gate armed");
                 return false;
             }
 
@@ -332,8 +354,7 @@ namespace R3DUnison.Session
                     break;
                 case Phase.ClientArmed:
                     // Host never said GO (started without us / vanished): don't sit gated forever.
-                    // Spectators are gated on purpose — they wait for the next round.
-                    if (!_spectating && Time.realtimeSinceStartup > _deadline) Fire();
+                    if (Time.realtimeSinceStartup > _deadline) Fire();
                     break;
                 case Phase.Countdown:
                 {
@@ -402,13 +423,21 @@ namespace R3DUnison.Session
             var rm = RoomManager.Instance;
             if (rm == null || !rm.InRoom || _isInitiator || msg?.Key == null) return;
             SetRoundSpeed(msg.Key, msg.Speed); // host-authoritative for this round
+            // If we were autoplay-spectating, the round pulls us in for real — turn autoplay
+            // off and always reload (don't take the "already here" shortcut, which would leave
+            // us watching an autoplay instead of playing).
+            bool wasAutoSpectating = _autoSpectating;
+            StopAutoSpectate();
             var current = Game.LevelTracker.TryDetect();
-            if (current != null && current.Key == msg.Key)
+            if (!wasAutoSpectating && current != null && current.Key == msg.Key)
             {
                 // Already sitting in that level (unsynced): report ready, skip the gate.
+                // Must set a real deadline — otherwise Tick's ClientArmed fires immediately
+                // off a stale _deadline and this client races ahead of the coordinated GO.
                 _isInitiator = false;
                 _key = msg.Key;
                 _phase = Phase.ClientArmed;
+                _deadline = Time.realtimeSinceStartup + 45f;
                 rm.SendAll(MessageType.Ready, new LevelReadyMsg { Key = msg.Key });
                 return;
             }
@@ -532,6 +561,7 @@ namespace R3DUnison.Session
 
         public static void OnLocalLevelExited()
         {
+            StopAutoSpectate(); // left the level → stop autoplay, restore the player's setting
             if (_isInitiator && Active)
             {
                 RoomManager.Instance?.SendAll(MessageType.SyncAbort, new SyncAbortMsg());
@@ -547,6 +577,7 @@ namespace R3DUnison.Session
         /// <summary>Leaving the room / mod shutdown: never leave a level gated in silence.</summary>
         public static void ResetAll()
         {
+            StopAutoSpectate();
             if (!_isInitiator && _conductor != null) Fire();
             else Reset(null);
             RoundSpeed = 0f;
@@ -558,7 +589,6 @@ namespace R3DUnison.Session
         {
             _phase = Phase.Idle;
             _isInitiator = false;
-            _spectating = false;
             _conductor = null;
             _onComplete = null;
             _onSongScheduled = null;

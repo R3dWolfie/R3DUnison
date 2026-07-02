@@ -73,8 +73,11 @@ namespace R3DUnison.Game
                 if (member.IsSelf || member.Dead || !member.HasFreshStats || member.StatsKey != mine.Key) continue;
                 if (!UI.GhostOverlay.TryGetGhostPosition(member, floors, out var stationary, out var orbit, out _)) continue;
                 seen.Add(member.Id);
-                if (!_pairs.TryGetValue(member.Id, out var pair))
+                // `== null` also catches Unity-destroyed clones (e.g. after a same-key retry,
+                // where the scene reloaded but our _levelKey didn't change) — respawn them.
+                if (!_pairs.TryGetValue(member.Id, out var pair) || pair.OnTile == null || pair.Orbiting == null)
                 {
+                    DestroyPair(member.Id);
                     pair = new Pair
                     {
                         OnTile = SpawnGhost(member, first: true),
@@ -83,6 +86,7 @@ namespace R3DUnison.Game
                     _pairs[member.Id] = pair;
                     RealPlanets.Add(member.Id);
                 }
+                if (pair.OnTile == null || pair.Orbiting == null) continue;
                 // Slightly behind the local play plane so ghosts never cover your planets
                 pair.OnTile.transform.position = stationary + Vector3.forward * 2f;
                 pair.Orbiting.transform.position = orbit + Vector3.forward * 2f;
@@ -102,8 +106,27 @@ namespace R3DUnison.Game
             Color color = member.HasColors
                 ? (first ? member.Color1 : member.Color2)
                 : (first ? UI.UnisonTheme.Green : Color.white);
+            // The planet body + glow are recolored by the player's color; the FACE
+            // (eyes/details) is its own color and must NOT be tinted, or the whole planet
+            // reads as a solid blob of one color instead of a colored body with a face.
+            var faceSprites = new HashSet<SpriteRenderer>();
+            try
+            {
+                var pr = ghost.GetComponent<scrPlanet>()?.planetRenderer;
+                if (pr != null)
+                {
+                    if (pr.faceSprite != null) faceSprites.Add(pr.faceSprite);
+                    if (pr.faceDetails != null) faceSprites.Add(pr.faceDetails);
+                    if (pr.samuraiSprite != null) faceSprites.Add(pr.samuraiSprite);
+                }
+            }
+            catch
+            {
+                // planetRenderer not wired on the clone — fall back to tinting everything
+            }
             foreach (var sprite in ghost.GetComponentsInChildren<SpriteRenderer>(true))
             {
+                if (faceSprites.Contains(sprite)) continue;
                 sprite.color = new Color(color.r, color.g, color.b, sprite.color.a * 0.8f);
             }
             foreach (var particles in ghost.GetComponentsInChildren<ParticleSystem>(true))

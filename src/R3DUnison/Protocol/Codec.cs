@@ -30,7 +30,21 @@ namespace R3DUnison.Protocol
             }
         }
 
-        public static T Payload<T>(Envelope env) => JsonConvert.DeserializeObject<T>(env.Payload);
+        // Never throw out of the per-frame message loop: a malformed/empty payload from
+        // any peer would otherwise kill every OnFrame subscriber for that frame.
+        public static T Payload<T>(Envelope env)
+        {
+            try
+            {
+                if (env?.Payload == null) return default;
+                return JsonConvert.DeserializeObject<T>(env.Payload);
+            }
+            catch (Exception e)
+            {
+                Main.LogError($"Bad payload for {typeof(T).Name}: {e.Message}");
+                return default;
+            }
+        }
     }
 
     public class Hello

@@ -11,100 +11,114 @@ namespace R3DUnison.UI
     /// </summary>
     public class RosterOverlay : MonoBehaviour
     {
+        // Snapshotted once per frame (on the Layout pass) so the Repaint pass emits the
+        // exact same control count — time-varying filters between passes throw IMGUI errors.
+        private System.Collections.Generic.List<RoomManager.ChatToast> _toasts = new System.Collections.Generic.List<RoomManager.ChatToast>();
+        private bool _showResultsSnap;
+
         private void OnGUI()
         {
             var rm = RoomManager.Instance;
             if (rm == null || !rm.InRoom) return;
+
+            if (Event.current.type == EventType.Layout)
+            {
+                _toasts = rm.Toasts.Where(t => Time.realtimeSinceStartup - t.At < 5f).ToList();
+                _showResultsSnap = Scoreboard.LastRound != null && Time.realtimeSinceStartup - Scoreboard.LastRoundAt < 12f;
+            }
+            var toasts = _toasts;
             bool syncActive = SyncedStart.Active;
-            var toasts = rm.Toasts.Where(t => Time.realtimeSinceStartup - t.At < 5f).ToList();
             // Roster shows whenever you have company in the room (menu included);
             // toasts show whenever recent, even solo.
             bool showRoster = rm.Members.Count > 1 || syncActive;
             if (!showRoster && toasts.Count == 0) return;
+            bool showResults = showRoster && _showResultsSnap && Scoreboard.LastRound != null;
 
             float scale = Mathf.Max(1f, Screen.height / 1080f);
             var previousMatrix = GUI.matrix;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1f));
             UnisonTheme.Ensure();
-
-            bool showResults = showRoster && Scoreboard.LastRound != null && Time.realtimeSinceStartup - Scoreboard.LastRoundAt < 12f;
-            float height = 40 + toasts.Count * 26;
-            if (showRoster)
+            try
             {
-                height += rm.Members.Count * 30
-                    + (SyncedStart.StatusLine != null ? 32 : 0)
-                    + (SpectatorCam.HintLine != null ? 32 : 0)
-                    + (showResults ? 36 + Scoreboard.LastRound.Count * 26 : 0);
-            }
-            GUILayout.BeginArea(new Rect(16, 240, 320, height), UnisonTheme.Overlay);
-            GUILayout.Label("R3D UNISON", UnisonTheme.OverlayHead);
-            GUILayout.Space(4);
-            if (!showRoster)
-            {
+                float height = 40 + toasts.Count * 26;
+                if (showRoster)
+                {
+                    height += rm.Members.Count * 30
+                        + (SyncedStart.StatusLine != null ? 32 : 0)
+                        + (SpectatorCam.HintLine != null ? 32 : 0)
+                        + (showResults ? 36 + Scoreboard.LastRound.Count * 26 : 0);
+                }
+                GUILayout.BeginArea(new Rect(16, 240, 320, height), UnisonTheme.Overlay);
+                GUILayout.Label("R3D UNISON", UnisonTheme.OverlayHead);
+                GUILayout.Space(4);
+                if (!showRoster)
+                {
+                    foreach (var toast in toasts)
+                    {
+                        GUILayout.Label($"{toast.Name}: {toast.Text}", UnisonTheme.Label);
+                    }
+                    GUILayout.EndArea();
+                    return;
+                }
+                if (SyncedStart.StatusLine != null)
+                {
+                    GUILayout.Label(SyncedStart.StatusLine, UnisonTheme.LevelText);
+                    GUILayout.Space(4);
+                }
+                if (SpectatorCam.HintLine != null)
+                {
+                    GUILayout.Label(SpectatorCam.HintLine, UnisonTheme.LevelText);
+                    GUILayout.Space(4);
+                }
+                foreach (var member in rm.Members)
+                {
+                    GUILayout.BeginHorizontal();
+                    bool connected = member.IsSelf || member.P2PConnected;
+                    var entry = Scoreboard.GetEntry(member.Id);
+                    bool outOfRound = entry != null && entry.Eliminated;
+                    var dot = member.Dead || outOfRound ? UnisonTheme.DotDead : connected ? UnisonTheme.DotOn : UnisonTheme.DotOff;
+                    GUILayout.Label("●", dot);
+                    GUILayout.Label(member.Name, UnisonTheme.Label);
+                    GUILayout.FlexibleSpace();
+                    if (outOfRound)
+                    {
+                        GUILayout.Label($"OUT · {entry.Progress:P0}", UnisonTheme.DeadText);
+                    }
+                    else if (member.Dead)
+                    {
+                        GUILayout.Label($"✕ {member.Progress:P0}", UnisonTheme.DeadText);
+                    }
+                    else if (member.HasFreshStats && member.StatsKey != null && member.StatsKey.StartsWith("menu:"))
+                    {
+                        GUILayout.Label("menu", UnisonTheme.Dim);
+                    }
+                    else if (member.HasFreshStats)
+                    {
+                        GUILayout.Label($"{member.Progress:P0} · {member.Accuracy:P1}", UnisonTheme.LevelText);
+                    }
+                    GUILayout.EndHorizontal();
+                }
+                if (showResults)
+                {
+                    GUILayout.Space(6);
+                    GUILayout.Label($"ROUND — {Scoreboard.LastRoundWinner} wins!", UnisonTheme.OverlayHead);
+                    int place = 1;
+                    foreach (var entry in Scoreboard.LastRound)
+                    {
+                        string detail = entry.Won ? $"{entry.Acc:P1}" : $"{entry.Progress:P0}";
+                        GUILayout.Label($"{place++}. {entry.Name} — {detail}", UnisonTheme.Label);
+                    }
+                }
                 foreach (var toast in toasts)
                 {
-                    GUILayout.Label($"{toast.Name}: {toast.Text}", UnisonTheme.Label);
+                    GUILayout.Label($"{toast.Name}: {toast.Text}", UnisonTheme.Dim);
                 }
                 GUILayout.EndArea();
+            }
+            finally
+            {
                 GUI.matrix = previousMatrix;
-                return;
             }
-            if (SyncedStart.StatusLine != null)
-            {
-                GUILayout.Label(SyncedStart.StatusLine, UnisonTheme.LevelText);
-                GUILayout.Space(4);
-            }
-            if (SpectatorCam.HintLine != null)
-            {
-                GUILayout.Label(SpectatorCam.HintLine, UnisonTheme.LevelText);
-                GUILayout.Space(4);
-            }
-            foreach (var member in rm.Members)
-            {
-                GUILayout.BeginHorizontal();
-                bool connected = member.IsSelf || member.P2PConnected;
-                var entry = Scoreboard.GetEntry(member.Id);
-                bool outOfRound = entry != null && entry.Eliminated;
-                var dot = member.Dead || outOfRound ? UnisonTheme.DotDead : connected ? UnisonTheme.DotOn : UnisonTheme.DotOff;
-                GUILayout.Label("●", dot);
-                GUILayout.Label(member.Name, UnisonTheme.Label);
-                GUILayout.FlexibleSpace();
-                if (outOfRound)
-                {
-                    GUILayout.Label($"OUT · {entry.Progress:P0}", UnisonTheme.DeadText);
-                }
-                else if (member.Dead)
-                {
-                    GUILayout.Label($"✕ {member.Progress:P0}", UnisonTheme.DeadText);
-                }
-                else if (member.HasFreshStats && member.StatsKey != null && member.StatsKey.StartsWith("menu:"))
-                {
-                    GUILayout.Label("menu", UnisonTheme.Dim);
-                }
-                else if (member.HasFreshStats)
-                {
-                    GUILayout.Label($"{member.Progress:P0} · {member.Accuracy:P1}", UnisonTheme.LevelText);
-                }
-                GUILayout.EndHorizontal();
-            }
-            if (showResults)
-            {
-                GUILayout.Space(6);
-                GUILayout.Label($"ROUND — {Scoreboard.LastRoundWinner} wins!", UnisonTheme.OverlayHead);
-                int place = 1;
-                foreach (var entry in Scoreboard.LastRound)
-                {
-                    string detail = entry.Won ? $"{entry.Acc:P1}" : $"{entry.Progress:P0}";
-                    GUILayout.Label($"{place++}. {entry.Name} — {detail}", UnisonTheme.Label);
-                }
-            }
-            foreach (var toast in toasts)
-            {
-                GUILayout.Label($"{toast.Name}: {toast.Text}", UnisonTheme.Dim);
-            }
-            GUILayout.EndArea();
-
-            GUI.matrix = previousMatrix;
         }
     }
 }
