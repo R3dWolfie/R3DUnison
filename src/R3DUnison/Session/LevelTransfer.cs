@@ -18,8 +18,9 @@ namespace R3DUnison.Session
     public static class LevelTransfer
     {
         private const int ChunkSize = 192 * 1024;          // ×4/3 base64 ≈ 256 KB < Steam's 512 KB message cap
-        private const int SendWindow = 3;
+        private const int SendWindow = 24;                 // ~6 MB in flight; fits the raised 8 MB send buffer
         private const long MaxLevelBytes = 250L * 1024 * 1024;
+        private const float PeerStallTimeout = 25f;        // no chunk for this long → give up loudly
 
         // ---------------- host side ----------------
 
@@ -152,19 +153,27 @@ namespace R3DUnison.Session
                 }
             }
             SyncedStart.NotifyTransferActivity();
+            PumpSend(from, send);
+        }
+
+        // Send up to the window; stop the instant a send fails (buffer full) and leave
+        // NextChunk where it is — the next ack or the Tick retry pump picks it back up.
+        private static void PumpSend(ulong peer, PeerSend send)
+        {
             while (send.Active && send.NextChunk < TotalChunks && send.NextChunk <= send.Acked + SendWindow)
             {
-                SendChunk(from, send.NextChunk++);
+                if (!SendChunk(peer, send.NextChunk)) break;
+                send.NextChunk++;
             }
         }
 
-        private static void SendChunk(ulong peer, int index)
+        private static bool SendChunk(ulong peer, int index)
         {
             int offset = index * ChunkSize;
             int length = Math.Min(ChunkSize, _zipBytes.Length - offset);
             string data = Convert.ToBase64String(_zipBytes, offset, length);
-            RoomManager.Instance?.SendToPeer(peer, MessageType.LevelChunk,
-                new LevelChunkMsg { Key = _zipKey, Index = index, Data = data });
+            return RoomManager.Instance?.SendToPeer(peer, MessageType.LevelChunk,
+                new LevelChunkMsg { Key = _zipKey, Index = index, Data = data }) == true;
         }
 
         public static void OnLevelDecline(ulong from, LevelDeclineMsg msg)
@@ -174,12 +183,42 @@ namespace R3DUnison.Session
             SyncedStart.PeerDeclined(from);
         }
 
+        /// <summary>Per-frame: retry stalled host sends (buffer freed up) + peer-side stall timeout.</summary>
+        public static void Tick()
+        {
+            // Host: re-pump any active send whose window has room but stopped on a full buffer.
+            if (_zipBytes != null && _sends.Count > 0)
+            {
+                var rm = RoomManager.Instance;
+                foreach (var kv in _sends.ToList())
+                {
+                    // Drop peers who left the room mid-send.
+                    if (rm != null && rm.InRoom && !rm.Members.Any(m => m.Id == kv.Key))
+                    {
+                        _sends.Remove(kv.Key);
+                        continue;
+                    }
+                    if (kv.Value.Active) PumpSend(kv.Key, kv.Value);
+                }
+            }
+
+            // Peer: if a download went silent, fail loudly instead of hanging forever.
+            if (_receiveBuffer != null && UnityEngine.Time.realtimeSinceStartup - _lastChunkAt > PeerStallTimeout)
+            {
+                Main.LogError("[transfer] download stalled — no data from host");
+                var display = _pendingStart?.Display;
+                PeerReset();
+                PeerStatus = $"Download of '{display}' stalled — ask the host to start it again.";
+            }
+        }
+
         // ---------------- peer side ----------------
 
         private static StartLevelMsg _pendingStart;
         private static ulong _hostId;
         private static byte[] _receiveBuffer;
         private static int _expectedChunks, _receivedChunks;
+        private static float _lastChunkAt;
 
         /// <summary>Non-null → show the download prompt.</summary>
         public static LevelOfferMsg PendingOffer { get; private set; }
@@ -219,6 +258,7 @@ namespace R3DUnison.Session
             _receiveBuffer = new byte[PendingOffer.Size];
             _expectedChunks = PendingOffer.Chunks;
             _receivedChunks = 0;
+            _lastChunkAt = UnityEngine.Time.realtimeSinceStartup;
             DownloadProgress = 0f;
             var key = PendingOffer.Key;
             PendingOffer = null;
@@ -251,6 +291,7 @@ namespace R3DUnison.Session
             if (offset < 0 || offset + bytes.Length > _receiveBuffer.Length) return;
             Buffer.BlockCopy(bytes, 0, _receiveBuffer, (int)offset, bytes.Length);
             _receivedChunks++;
+            _lastChunkAt = UnityEngine.Time.realtimeSinceStartup;
             DownloadProgress = (float)_receivedChunks / _expectedChunks;
             RoomManager.Instance?.SendToPeer(from, MessageType.ChunkAck, new ChunkAckMsg { Key = msg.Key, Index = msg.Index });
             if (_receivedChunks >= _expectedChunks) Complete();
@@ -266,6 +307,7 @@ namespace R3DUnison.Session
                     Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                     "A Dance of Fire and Ice", "Worlds");
                 Directory.CreateDirectory(worlds);
+                long extracted = 0;
                 using (var stream = new MemoryStream(_receiveBuffer))
                 using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
                 {
@@ -274,6 +316,12 @@ namespace R3DUnison.Session
                         if (entry.Name.Length == 0) continue;
                         string rel = entry.FullName.Replace('\\', '/');
                         if (rel.Contains("..") || Path.IsPathRooted(rel)) continue; // path traversal guard
+                        // Cap total decompressed size — a small zip must not fill the disk (zip bomb).
+                        extracted += entry.Length;
+                        if (extracted > MaxLevelBytes)
+                        {
+                            throw new Exception($"level unpacks to more than {MaxLevelBytes / 1048576} MB — refused");
+                        }
                         string target = Path.Combine(worlds, rel);
                         Directory.CreateDirectory(Path.GetDirectoryName(target));
                         using (var source = entry.Open())

@@ -11,6 +11,7 @@ namespace R3DUnison.Protocol
         {
             var env = new Envelope
             {
+                ProtocolVersion = ProtocolInfo.Version,
                 Type = type,
                 Payload = JsonConvert.SerializeObject(payload),
             };

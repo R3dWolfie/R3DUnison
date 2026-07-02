@@ -85,6 +85,7 @@ namespace R3DUnison.Session
                 SyncedStart.Tick();
                 TickLiveStats();
                 Scoreboard.Tick();
+                LevelTransfer.Tick();
                 TickRoomSpeed();
                 TickSpeedRestart();
                 TickPings();
@@ -205,10 +206,10 @@ namespace R3DUnison.Session
             _transport?.Broadcast(Codec.Encode(type, payload), SendMode.Reliable);
         }
 
-        /// <summary>Reliable message to one specific member.</summary>
-        internal void SendToPeer(ulong peerId, MessageType type, object payload)
+        /// <summary>Reliable message to one specific member. Returns false if the buffer was full.</summary>
+        internal bool SendToPeer(ulong peerId, MessageType type, object payload)
         {
-            _transport?.Send(peerId, Codec.Encode(type, payload), SendMode.Reliable);
+            return _transport != null && _transport.Send(peerId, Codec.Encode(type, payload), SendMode.Reliable);
         }
 
         private float _statsSentAt;
@@ -257,6 +258,13 @@ namespace R3DUnison.Session
             }
             if (now - _statsSentAt < 0.25f) return;
             _statsSentAt = now;
+
+            // Re-broadcast colors if the level recolored our planets mid-run (level events).
+            var curColor = SamplePlanetColor(red: true);
+            if (!string.IsNullOrEmpty(curColor) && curColor != _lastSentColor1)
+            {
+                SendHello();
+            }
 
             float progress = 0f, accuracy = 1f;
             bool dead = false, won = false, paused = false;
@@ -494,22 +502,8 @@ namespace R3DUnison.Session
 
         private void SendHello()
         {
-            // Live planet colors beat the settings file: they include custom colors and
-            // whatever the current level has recolored the planets to.
-            string color1 = "", color2 = "";
-            try
-            {
-                var controller = scrController.instance;
-                if (controller != null && controller.planetRed != null && controller.planetBlue != null)
-                {
-                    color1 = UnityEngine.ColorUtility.ToHtmlStringRGB(controller.planetRed.planetRenderer.planetColor.ToRealColor());
-                    color2 = UnityEngine.ColorUtility.ToHtmlStringRGB(controller.planetBlue.planetRenderer.planetColor.ToRealColor());
-                }
-            }
-            catch
-            {
-                color1 = "";
-            }
+            string color1 = SamplePlanetColor(red: true);
+            string color2 = SamplePlanetColor(red: false);
             if (string.IsNullOrEmpty(color1))
             {
                 try
@@ -522,9 +516,35 @@ namespace R3DUnison.Session
                     // color prefs unavailable — ghosts fall back to the palette
                 }
             }
+            _lastSentColor1 = color1;
             _transport?.Broadcast(
                 Codec.Encode(MessageType.Hello, new Hello { Name = SteamFriends.GetPersonaName(), Color1 = color1, Color2 = color2 }),
                 SendMode.Reliable);
+        }
+
+        private string _lastSentColor1;
+
+        // Sample the planet's ACTUAL displayed color (meshRenderer.color) so ghosts match
+        // what the level shows — many custom levels recolor planets via events, so the
+        // player's color *setting* (planetColor) is the wrong source. Falls back to the setting.
+        private static string SamplePlanetColor(bool red)
+        {
+            try
+            {
+                var c = scrController.instance;
+                var p = red ? c?.planetRed : c?.planetBlue;
+                var pr = p?.planetRenderer;
+                if (pr == null) return "";
+                if (pr.sprite != null && pr.sprite.meshRenderer != null)
+                {
+                    return UnityEngine.ColorUtility.ToHtmlStringRGB(pr.sprite.color);
+                }
+                return UnityEngine.ColorUtility.ToHtmlStringRGB(pr.planetColor.ToRealColor());
+            }
+            catch
+            {
+                return "";
+            }
         }
 
         private void OnMessage(ulong from, byte[] data)
@@ -536,6 +556,9 @@ namespace R3DUnison.Session
                 Status = $"Version mismatch with a peer — both sides need the latest R3D Unison.";
                 return;
             }
+            // Room-control messages are only legitimate from the lobby owner (the round host).
+            // Ignoring them from anyone else stops a member from griefing the whole room.
+            bool fromOwner = Lobby != null && Lobby.InRoom && from == Lobby.OwnerId;
             switch (envelope.Type)
             {
                 case MessageType.Hello:
@@ -559,7 +582,7 @@ namespace R3DUnison.Session
                     break;
                 }
                 case MessageType.StartLevel:
-                    SyncedStart.OnStartLevel(from, Codec.Payload<StartLevelMsg>(envelope));
+                    if (fromOwner) SyncedStart.OnStartLevel(from, Codec.Payload<StartLevelMsg>(envelope));
                     break;
                 case MessageType.Ready:
                     SyncedStart.OnPeerReady(from, Codec.Payload<LevelReadyMsg>(envelope));
@@ -585,10 +608,10 @@ namespace R3DUnison.Session
                     break;
                 }
                 case MessageType.CountdownStart:
-                    SyncedStart.OnGo(from, Codec.Payload<CountdownMsg>(envelope));
+                    if (fromOwner) SyncedStart.OnGo(from, Codec.Payload<CountdownMsg>(envelope));
                     break;
                 case MessageType.SyncAbort:
-                    SyncedStart.OnAbort(from);
+                    if (fromOwner) SyncedStart.OnAbort(from);
                     break;
                 case MessageType.LiveStats:
                 {

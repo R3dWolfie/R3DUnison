@@ -71,7 +71,7 @@ namespace R3DUnison.Game
             foreach (var member in rm.Members)
             {
                 if (member.IsSelf || member.Dead || !member.HasFreshStats || member.StatsKey != mine.Key) continue;
-                if (!UI.GhostOverlay.TryGetGhostPosition(member, floors, out var stationary, out var orbit, out _)) continue;
+                if (!UI.GhostOverlay.TryGetGhostPosition(member, floors, out var stationary, out var orbit, out int seq)) continue;
                 seen.Add(member.Id);
                 // `== null` also catches Unity-destroyed clones (e.g. after a same-key retry,
                 // where the scene reloaded but our _levelKey didn't change) — respawn them.
@@ -87,9 +87,15 @@ namespace R3DUnison.Game
                     RealPlanets.Add(member.Id);
                 }
                 if (pair.OnTile == null || pair.Orbiting == null) continue;
+                // Which color sits ON the tile alternates each note (parity) — the real two
+                // planets keep their colors and take turns pivoting. Placing the fixed-color
+                // clones by parity matches that, instead of the color appearing to swap.
+                bool color1OnTile = (seq & 1) == 0;
+                var tileGo = color1OnTile ? pair.OnTile : pair.Orbiting;
+                var orbitGo = color1OnTile ? pair.Orbiting : pair.OnTile;
                 // Slightly behind the local play plane so ghosts never cover your planets
-                pair.OnTile.transform.position = stationary + Vector3.forward * 2f;
-                pair.Orbiting.transform.position = orbit + Vector3.forward * 2f;
+                tileGo.transform.position = stationary + Vector3.forward * 2f;
+                orbitGo.transform.position = orbit + Vector3.forward * 2f;
             }
 
             foreach (var id in _pairs.Keys.Where(id => !seen.Contains(id)).ToList())

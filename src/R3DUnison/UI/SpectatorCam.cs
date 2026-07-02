@@ -17,6 +17,16 @@ namespace R3DUnison.UI
         public static string HintLine { get; private set; }
 
         private AudioSource _audio;
+        private static int _targetIndex;
+
+        // Stable, sorted list of who you can watch right now (alive, same level, not you).
+        private static System.Collections.Generic.List<Session.MemberState> Candidates(Session.RoomManager rm, string key)
+        {
+            return rm.Members
+                .Where(m => !m.IsSelf && !m.Dead && m.HasFreshStats && m.StatsKey == key)
+                .OrderBy(m => m.Id)
+                .ToList();
+        }
 
         private void Awake()
         {
@@ -66,6 +76,14 @@ namespace R3DUnison.UI
 
         private void Update()
         {
+            // Cycle spectate target with the arrow keys (works while dead or autoplay-spectating).
+            var rm = RoomManager.Instance;
+            bool spectating = rm != null && rm.InRoom && (SyncedStart.AutoSpectating || HoldingFailScreen);
+            if (spectating)
+            {
+                if (Input.GetKeyDown(KeyCode.RightArrow)) _targetIndex++;
+                if (Input.GetKeyDown(KeyCode.LeftArrow)) _targetIndex--;
+            }
             if (HoldingFailScreen && Input.GetKeyDown(KeyCode.R))
             {
                 HoldingFailScreen = false;
@@ -109,31 +127,36 @@ namespace R3DUnison.UI
                     return;
                 }
 
-                var target = rm.Members
-                    .Where(m => !m.IsSelf && !m.Dead && m.HasFreshStats && m.StatsKey == mine.Key)
-                    .OrderByDescending(m => m.Progress)
-                    .FirstOrDefault();
-
-                if (autoSpec)
-                {
-                    // Autoplay drives its own camera + audio; we only label who's leading.
-                    StopSpectateAudio();
-                    HintLine = target != null
-                        ? $"SPECTATING {target.Name} (autoplay) — exit via the pause menu"
-                        : "SPECTATING (autoplay) — exit via the pause menu";
-                    return;
-                }
-
-                // Dead: pan the frozen level's camera to the leading survivor + play synced audio.
-                if (target == null)
+                // Pick the selected player (arrow keys cycle _targetIndex; wraps).
+                var candidates = Candidates(rm, mine.Key);
+                if (candidates.Count == 0)
                 {
                     StopSpectateAudio();
+                    HintLine = autoSpec ? "SPECTATING — waiting for players…" : null;
+                    if (dead) HoldingFailScreen = true;
                     return;
                 }
-                UpdateSpectateAudio(target);
-                HoldingFailScreen = true;
-                HintLine = $"SPECTATING {target.Name} — press R to retry";
+                _targetIndex = ((_targetIndex % candidates.Count) + candidates.Count) % candidates.Count;
+                var target = candidates[_targetIndex];
+                string switchHint = candidates.Count > 1 ? "  ◄ ► switch" : "";
 
+                if (dead)
+                {
+                    HoldingFailScreen = true;
+                    HintLine = $"SPECTATING {target.Name} — R to retry{switchHint}";
+                }
+                else
+                {
+                    HintLine = $"SPECTATING {target.Name}{switchHint}";
+                }
+
+                // While dead the level is frozen (no music) so play the target's synced audio;
+                // during autoplay the game already plays it.
+                if (dead) UpdateSpectateAudio(target);
+                else StopSpectateAudio();
+
+                // Follow the selected player's ghost so the camera tracks THEM (not the autoplay
+                // planet / your frozen corpse). Set both the smoothing target and the position.
                 var floors = ADOBase.lm?.listFloors;
                 if (floors == null || floors.Count == 0) return;
                 if (!GhostOverlay.TryGetGhostPosition(target, floors, out var stationary, out var orbit, out _)) return;
@@ -143,7 +166,8 @@ namespace R3DUnison.UI
                 Vector3 focus = (stationary + orbit) * 0.5f;
                 cam.topos = new Vector2(focus.x, focus.y);
                 var t = cam.transform;
-                t.position = Vector3.Lerp(t.position, new Vector3(focus.x, focus.y, t.position.z), 6f * Time.deltaTime);
+                float lerp = autoSpec ? 10f : 6f;
+                t.position = Vector3.Lerp(t.position, new Vector3(focus.x, focus.y, t.position.z), lerp * Time.deltaTime);
             }
             catch
             {

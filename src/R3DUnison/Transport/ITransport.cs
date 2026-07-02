@@ -17,7 +17,8 @@ namespace R3DUnison.Transport
         event Action<ulong> PeerDisconnected;
         event Action<ulong, byte[]> MessageReceived;
 
-        void Send(ulong peerId, byte[] payload, SendMode mode);
+        /// <summary>Returns true if Steam accepted the message into its send buffer.</summary>
+        bool Send(ulong peerId, byte[] payload, SendMode mode);
 
         /// <summary>Host: send to all peers. Client: send to host.</summary>
         void Broadcast(byte[] payload, SendMode mode);

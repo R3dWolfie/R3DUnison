@@ -137,7 +137,9 @@ namespace R3DUnison.Protocol
 
     public class Envelope
     {
-        [JsonProperty("v")] public int ProtocolVersion = ProtocolInfo.Version;
+        // Default 0 so a peer that OMITS the field is detected as a mismatch (not silently
+        // read as the current version). Encode() sets it explicitly on outgoing messages.
+        [JsonProperty("v")] public int ProtocolVersion;
         [JsonProperty("t")] public MessageType Type;
         [JsonProperty("p")] public string Payload;
     }

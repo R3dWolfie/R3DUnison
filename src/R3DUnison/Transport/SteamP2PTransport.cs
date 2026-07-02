@@ -31,30 +31,76 @@ namespace R3DUnison.Transport
 #pragma warning restore 0067
         public event Action<ulong, byte[]> MessageReceived;
 
+        private static bool _networkingConfigured;
+
         public SteamP2PTransport()
         {
             LocalPeerId = SteamUser.GetSteamID().m_SteamID;
             _sessionRequest = Callback<SteamNetworkingMessagesSessionRequest_t>.Create(OnSessionRequest);
             Core.MainThreadDispatcher.OnFrame += Poll;
+            ConfigureNetworking();
+        }
+
+        // Raise Steam's per-connection send buffer + rate cap so level transfers aren't
+        // throttled to a few chunks per round-trip (the default 512 KB buffer is why TUF
+        // downloads crawled). Global config, applied once.
+        private static void ConfigureNetworking()
+        {
+            if (_networkingConfigured) return;
+            _networkingConfigured = true;
+            SetGlobalInt(ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_SendBufferSize, 8 * 1024 * 1024);
+            SetGlobalInt(ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_SendRateMax, 30 * 1024 * 1024);
+        }
+
+        private static void SetGlobalInt(ESteamNetworkingConfigValue key, int value)
+        {
+            IntPtr p = Marshal.AllocHGlobal(sizeof(int));
+            try
+            {
+                Marshal.WriteInt32(p, value);
+                SteamNetworkingUtils.SetConfigValue(
+                    key,
+                    ESteamNetworkingConfigScope.k_ESteamNetworkingConfig_Global,
+                    IntPtr.Zero,
+                    ESteamNetworkingConfigDataType.k_ESteamNetworkingConfig_Int32,
+                    p);
+            }
+            catch (Exception e)
+            {
+                Main.Log($"Networking config {key} failed: {e.Message}");
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(p);
+            }
         }
 
         /// <summary>Call when room membership changes. Peers = everyone in the room (self is filtered out).</summary>
         public void UpdateTopology(bool isHost, IEnumerable<ulong> peers)
         {
             IsHost = isHost;
-            _allowedPeers.Clear();
+            var next = new HashSet<ulong>();
             foreach (var p in peers)
             {
-                if (p != LocalPeerId)
+                if (p != LocalPeerId) next.Add(p);
+            }
+            // Close Steam messaging sessions for peers who left, so they don't leak until Dispose.
+            foreach (var gone in _allowedPeers)
+            {
+                if (!next.Contains(gone))
                 {
-                    _allowedPeers.Add(p);
+                    var identity = default(SteamNetworkingIdentity);
+                    identity.SetSteamID64(gone);
+                    try { SteamNetworkingMessages.CloseSessionWithUser(ref identity); } catch { }
                 }
             }
+            _allowedPeers.Clear();
+            foreach (var p in next) _allowedPeers.Add(p);
         }
 
-        public void Send(ulong peerId, byte[] payload, SendMode mode)
+        public bool Send(ulong peerId, byte[] payload, SendMode mode)
         {
-            if (_disposed) return;
+            if (_disposed) return false;
             var identity = default(SteamNetworkingIdentity);
             identity.SetSteamID64(peerId);
             int flags = mode == SendMode.Reliable
@@ -67,8 +113,11 @@ namespace R3DUnison.Transport
                     ref identity, handle.AddrOfPinnedObject(), (uint)payload.Length, flags, Channel);
                 if (result != EResult.k_EResultOK)
                 {
-                    Main.Log($"Send to {peerId} returned {result}");
+                    // k_EResultLimitExceeded = send buffer full → caller should back off and retry.
+                    if (result != EResult.k_EResultLimitExceeded) Main.Log($"Send to {peerId} returned {result}");
+                    return false;
                 }
+                return true;
             }
             finally
             {
@@ -120,6 +169,9 @@ namespace R3DUnison.Transport
                     if (data != null)
                     {
                         MessageReceived?.Invoke(from, data);
+                        // A handler may have disposed us (e.g. LeaveRoom) mid-batch — stop
+                        // before re-calling ReceiveMessagesOnChannel on a torn-down transport.
+                        if (_disposed) return;
                     }
                 }
             } while (count == MaxMessagesPerPoll);
