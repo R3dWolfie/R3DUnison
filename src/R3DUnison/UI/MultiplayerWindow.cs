@@ -281,7 +281,7 @@ namespace R3DUnison.UI
             if (lobby.IsOwner)
             {
                 if (GUILayout.Button("−", UnisonTheme.Button, GUILayout.Width(44))) NudgeSpeed(rm, -0.1f);
-                GUILayout.Label($"×{lobby.SpeedMultiplier:0.0#}", UnisonTheme.Name, GUILayout.Width(70));
+                GUILayout.Label($"×{lobby.SpeedMultiplier:0.0#}", UnisonTheme.Value, GUILayout.Width(76), GUILayout.Height(36));
                 if (GUILayout.Button("+", UnisonTheme.Button, GUILayout.Width(44))) NudgeSpeed(rm, +0.1f);
                 GUILayout.Space(8);
                 GUILayout.Label("applies when a level starts", UnisonTheme.Dim);

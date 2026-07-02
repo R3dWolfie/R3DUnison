@@ -25,7 +25,7 @@ namespace R3DUnison.UI
         public static readonly Color Ink800 = Hex("E4DFDF");
         public static readonly Color Green = Hex("55C57E");
 
-        public static GUIStyle Window, Title, TitleTag, Header, Label, Name, Dim, Status,
+        public static GUIStyle Window, Title, TitleTag, Header, Label, Name, Value, Dim, Status,
             LevelText, Card, Row, Button, ButtonPrimary, TextField, Overlay, OverlayHead,
             DotOn, DotOff, DotDead, DeadText, ChipHost, ChipYou;
 
@@ -110,6 +110,8 @@ namespace R3DUnison.UI
             Label = new GUIStyle { fontSize = 17, normal = { textColor = Ink700 }, wordWrap = false };
 
             Name = new GUIStyle(Label) { fontSize = 18, fontStyle = FontStyle.Bold, normal = { textColor = Ink800 } };
+
+            Value = new GUIStyle(Name) { alignment = TextAnchor.MiddleCenter };
 
             Dim = new GUIStyle(Label) { fontSize = 15, normal = { textColor = Ink500 } };
 
